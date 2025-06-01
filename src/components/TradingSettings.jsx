@@ -937,7 +937,6 @@ const TradingSettings = () => {
         {/* Footer */}
         <div className="text-center text-sm text-gray-500 pt-4">
           <p>Last updated: {lastUpdate || 'Never'}</p>
-          <p className="mt-1">Forex trading involves substantial risk of loss and is not suitable for all investors.</p>
         </div>
       </div>
     </div>
