@@ -36,7 +36,9 @@ import {
   Globe,
   ChevronDown,
   ChevronUp,
-  Settings
+  Settings,
+  Target,
+  TrendingFlat
 } from 'lucide-react';
 
 // Utility function for momentum direction
@@ -259,6 +261,48 @@ class ForexPredictor {
     return 100 - (100 / (1 + rs));
   }
 
+  calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+    if (data.length < slowPeriod) return { macd: 0, signal: 0, histogram: 0 };
+    
+    const prices = data.map(d => d.price);
+    
+    // Calculate EMAs
+    const calculateEMA = (prices, period) => {
+      const multiplier = 2 / (period + 1);
+      let ema = prices[0];
+      for (let i = 1; i < prices.length; i++) {
+        ema = (prices[i] * multiplier) + (ema * (1 - multiplier));
+      }
+      return ema;
+    };
+    
+    const fastEMA = calculateEMA(prices, fastPeriod);
+    const slowEMA = calculateEMA(prices, slowPeriod);
+    const macd = fastEMA - slowEMA;
+    
+    // For simplicity, using a basic signal calculation
+    const signal = macd * 0.1; // Simplified signal line
+    const histogram = macd - signal;
+    
+    return { macd, signal, histogram };
+  }
+
+  calculateBollingerBands(data, period = 20, multiplier = 2) {
+    if (data.length < period) return { upper: null, middle: null, lower: null };
+    
+    const prices = data.slice(-period).map(d => d.price);
+    const sma = prices.reduce((a, b) => a + b) / prices.length;
+    
+    const variance = prices.reduce((acc, price) => acc + Math.pow(price - sma, 2), 0) / prices.length;
+    const stdDev = Math.sqrt(variance);
+    
+    return {
+      upper: sma + (stdDev * multiplier),
+      middle: sma,
+      lower: sma - (stdDev * multiplier)
+    };
+  }
+
   predictNextPrice(symbol) {
     const data = this.historicalData[symbol];
     const linearModel = this.linearModels[symbol];
@@ -279,6 +323,8 @@ class ForexPredictor {
     const momentum = this.calculateMomentum(data);
     const volatility = this.calculateVolatility(data);
     const rsi = this.calculateRSI(data);
+    const macd = this.calculateMACD(data);
+    const bollinger = this.calculateBollingerBands(data);
     
     const currentPrice = data[data.length - 1].price;
     
@@ -361,6 +407,8 @@ class ForexPredictor {
       momentum: momentum,
       volatility: volatility,
       rsi: rsi,
+      macd: macd,
+      bollinger: bollinger,
       sma5: sma5,
       sma10: sma10,
       sma20: sma20,
@@ -377,8 +425,295 @@ class ForexPredictor {
   }
 }
 
-// Enhanced Currency Card Component
-const CurrencyCard = ({ pair, currentRate, previousRate, prediction, isLoading, lastUpdate }) => {
+// Enhanced Trade Settings Component
+const TradeSettings = ({ currencyData, onTradeSignal }) => {
+  const [riskPercent, setRiskPercent] = useState(2);
+  const [riskReward, setRiskReward] = useState(2);
+  const [accountBalance, setAccountBalance] = useState(10000);
+  const [selectedPair, setSelectedPair] = useState('');
+
+  // Find highest confidence pair
+  const highestConfidencePair = currencyData.reduce((best, current) => {
+    if (!current.prediction?.confidence) return best;
+    if (!best.prediction?.confidence) return current;
+    return current.prediction.confidence > best.prediction.confidence ? current : best;
+  }, {});
+
+  useEffect(() => {
+    if (highestConfidencePair?.pair?.symbol && !selectedPair) {
+      setSelectedPair(highestConfidencePair.pair.symbol);
+    }
+  }, [highestConfidencePair, selectedPair]);
+
+  const formatPrice = (price, symbol) => {
+    if (!price) return '---';
+    if (symbol.includes('JPY')) return price.toFixed(3);
+    if (symbol === 'XAUUSD') return price.toFixed(2);
+    return price.toFixed(4);
+  };
+
+  const generateTradeSignal = () => {
+    const data = currencyData.find(d => d.pair.symbol === selectedPair);
+    if (!data?.prediction) return null;
+
+    const { prediction, currentRate, pair } = data;
+    
+    // Determine signal based on multiple factors
+    let signal = 'HOLD';
+    let signalStrength = 0;
+    
+    // Trend analysis
+    if (prediction.trend === 'bullish') {
+      signal = 'BUY';
+      signalStrength += prediction.trendStrength || 1;
+    } else if (prediction.trend === 'bearish') {
+      signal = 'SELL';
+      signalStrength += prediction.trendStrength || 1;
+    }
+    
+    // RSI confirmation
+    if (prediction.rsi < 30 && signal === 'BUY') signalStrength += 1;
+    if (prediction.rsi > 70 && signal === 'SELL') signalStrength += 1;
+    
+    // MACD confirmation
+    if (prediction.macd.macd > prediction.macd.signal && signal === 'BUY') signalStrength += 0.5;
+    if (prediction.macd.macd < prediction.macd.signal && signal === 'SELL') signalStrength += 0.5;
+    
+    const isBuy = signal === 'BUY';
+    const pips = pair.symbol.includes('JPY') ? 0.01 : 0.0001;
+    
+    // Dynamic SL and TP calculation based on volatility and ATR
+    const atr = prediction.volatility * currentRate; // Approximate ATR
+    const slMultiplier = Math.max(1.5, Math.min(3, signalStrength));
+    const tpMultiplier = riskReward;
+    
+    const slDistance = atr * slMultiplier;
+    const tpDistance = slDistance * tpMultiplier;
+    
+    const sl = isBuy ? currentRate - slDistance : currentRate + slDistance;
+    const tp = isBuy ? currentRate + tpDistance : currentRate - tpDistance;
+    
+    // Lot size calculation with proper risk management
+    const riskAmount = accountBalance * (riskPercent / 100);
+    const slPips = Math.abs(currentRate - sl) / pips;
+    
+    // Forex lot size calculation (1 lot = 100,000 units)
+    const pipValue = pair.symbol.endsWith('USD') ? 10 : 10; // Simplified pip value
+    const lotSize = Math.min(10, Math.max(0.01, riskAmount / (slPips * pipValue)));
+
+    return {
+      pair: selectedPair,
+      pairName: pair.name,
+      signal: signal,
+      signalStrength: Math.min(5, signalStrength),
+      entry: currentRate,
+      sl: sl,
+      tp: tp,
+      lotSize: Number(lotSize.toFixed(2)),
+      confidence: prediction.confidence,
+      pipsToSL: Math.round(slPips),
+      pipsToTP: Math.round(Math.abs(tp - currentRate) / pips),
+      riskAmount: riskAmount,
+      potentialProfit: riskAmount * riskReward,
+      indicators: {
+        rsi: prediction.rsi,
+        macd: prediction.macd,
+        bollinger: prediction.bollinger,
+        sma5: prediction.sma5,
+        sma10: prediction.sma10,
+        sma20: prediction.sma20,
+        momentum: prediction.momentum,
+        volatility: prediction.volatility
+      }
+    };
+  };
+
+  const tradeSignal = generateTradeSignal();
+  const selectedData = currencyData.find(d => d.pair.symbol === selectedPair);
+
+  return (
+    <div className="bg-white rounded-2xl shadow-lg p-6">
+      <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center">
+        <Settings className="w-5 h-5 mr-2 text-indigo-600" />
+        Trade Settings & Signals
+      </h2>
+
+      <div className="space-y-6">
+        {/* Settings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Currency Pair</label>
+              <select 
+                value={selectedPair}
+                onChange={(e) => setSelectedPair(e.target.value)}
+                className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select a pair...</option>
+                {currencyData.map(data => (
+                  <option key={data.pair.symbol} value={data.pair.symbol}>
+                    {data.pair.symbol} - {data.pair.name} ({data.prediction?.confidence || 0}% confidence)
+                  </option>
+                ))}
+              </select>
+              {highestConfidencePair?.pair?.symbol === selectedPair && (
+                <p className="text-xs text-emerald-600 mt-1 flex items-center">
+                  <Target className="w-3 h-3 mr-1" />
+                  Highest confidence pair
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Risk %</label>
+                <input
+                  type="number"
+                  min="0.5"
+                  max="10"
+                  step="0.5"
+                  value={riskPercent}
+                  onChange={(e) => setRiskPercent(Number(e.target.value))}
+                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">R:R Ratio</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="5"
+                  step="0.5"
+                  value={riskReward}
+                  onChange={(e) => setRiskReward(Number(e.target.value))}
+                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Balance ($)</label>
+                <input
+                  type="number"
+                  min="1000"
+                  value={accountBalance}
+                  onChange={(e) => setAccountBalance(Number(e.target.value))}
+                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Technical Indicators Display */}
+          {selectedData?.prediction && (
+            <div className="bg-slate-50 rounded-xl p-4">
+              <h3 className="font-semibold text-slate-700 mb-3 flex items-center">
+                <BarChart2 className="w-4 h-4 mr-2" />
+                Technical Indicators
+              </h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-white rounded-lg p-2">
+                  <div className="text-slate-600">RSI (14)</div>
+                  <div className={`font-bold ${selectedData.prediction.rsi > 70 ? 'text-red-600' : selectedData.prediction.rsi < 30 ? 'text-emerald-600' : 'text-blue-600'}`}>
+                    {selectedData.prediction.rsi.toFixed(1)}
+                    {selectedData.prediction.rsi > 70 && <span className="text-xs ml-1">OB</span>}
+                    {selectedData.prediction.rsi < 30 && <span className="text-xs ml-1">OS</span>}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2">
+                  <div className="text-slate-600">MACD</div>
+                  <div className={`font-bold ${selectedData.prediction.macd.macd > selectedData.prediction.macd.signal ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {selectedData.prediction.macd.macd.toFixed(4)}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2">
+                  <div className="text-slate-600">SMA 5</div>
+                  <div className="font-bold text-slate-800">
+                    {formatPrice(selectedData.prediction.sma5, selectedPair)}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2">
+                  <div className="text-slate-600">SMA 20</div>
+                  <div className="font-bold text-slate-800">
+                    {formatPrice(selectedData.prediction.sma20, selectedPair)}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2">
+                  <div className="text-slate-600">Momentum</div>
+                  <div className={`font-bold ${selectedData.prediction.momentum > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {(selectedData.prediction.momentum * 100).toFixed(2)}%
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2">
+                  <div className="text-slate-600">Volatility</div>
+                  <div className="font-bold text-amber-600">
+                    {(selectedData.prediction.volatility * 100).toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+
+        {/* Trade Signal */}
+        {tradeSignal && (
+          <div className={`bg-gradient-to-br ${tradeSignal.signal === 'BUY' ? 'from-emerald-50 to-green-100 border-emerald-200' : 'from-red-50 to-red-100 border-red-200'} rounded-xl p-4 border`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-800">Trade Signal</h3>
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${tradeSignal.signal === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                {tradeSignal.signal}
+              </span>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-white bg-opacity-70 p-2 rounded">
+                  <div className="text-slate-600">Entry</div>
+                  <div className="font-bold">{tradeSignal.entry.toFixed(4)}</div>
+                </div>
+                <div className="bg-white bg-opacity-70 p-2 rounded">
+                  <div className="text-slate-600">Lot Size</div>
+                  <div className="font-bold">{tradeSignal.lotSize}</div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-red-100 p-2 rounded">
+                  <div className="text-red-700">SL</div>
+                  <div className="font-bold text-red-800">{tradeSignal.sl.toFixed(4)}</div>
+                  <div className="text-xs text-red-600">{tradeSignal.pipsToSL} pips</div>
+                </div>
+                <div className="bg-emerald-100 p-2 rounded">
+                  <div className="text-emerald-700">TP</div>
+                  <div className="font-bold text-emerald-800">{tradeSignal.tp.toFixed(4)}</div>
+                  <div className="text-xs text-emerald-600">{tradeSignal.pipsToTP} pips</div>
+                </div>
+              </div>
+              
+              <div className="bg-white bg-opacity-70 p-2 rounded text-center">
+                <div className="text-slate-600 text-sm">Confidence</div>
+                <div className="font-bold text-indigo-600">{tradeSignal.confidence}%</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Enhanced Currency Card Component with Trading Signals
+const CurrencyCard = ({ 
+  pair, 
+  currentRate, 
+  previousRate, 
+  prediction, 
+  isLoading, 
+  lastUpdate,
+  // Trading settings props
+  riskPercent = 2,
+  riskReward = 2,
+  accountBalance = 10000
+}) => {
   const [showDetails, setShowDetails] = useState(false);
   
   const change = currentRate && previousRate ? currentRate - previousRate : 0;
@@ -422,13 +757,140 @@ const CurrencyCard = ({ pair, currentRate, previousRate, prediction, isLoading, 
     return 'text-blue-600 bg-blue-50'; // Normal
   };
 
-  const getVolatilityLevel = (volatility) => {
-    if (volatility > 0.01) return { level: 'High', color: 'text-red-600', bgColor: 'bg-red-50' };
-    if (volatility > 0.005) return { level: 'Medium', color: 'text-amber-600', bgColor: 'bg-amber-50' };
-    return { level: 'Low', color: 'text-emerald-600', bgColor: 'bg-emerald-50' };
+  // Generate Trading Signal
+  const generateTradeSignal = () => {
+    if (!prediction || !currentRate) return null;
+
+    // Determine signal based on multiple factors
+    let signal = 'HOLD';
+    let signalStrength = 0;
+    let signalReason = [];
+    
+    // Trend analysis
+    if (prediction.trend === 'bullish') {
+      signal = 'BUY';
+      signalStrength += prediction.trendStrength || 1;
+      signalReason.push('Bullish trend');
+    } else if (prediction.trend === 'bearish') {
+      signal = 'SELL';
+      signalStrength += prediction.trendStrength || 1;
+      signalReason.push('Bearish trend');
+    }
+    
+    // RSI confirmation
+    if (prediction.rsi < 30 && signal === 'BUY') {
+      signalStrength += 1;
+      signalReason.push('RSI oversold');
+    }
+    if (prediction.rsi > 70 && signal === 'SELL') {
+      signalStrength += 1;
+      signalReason.push('RSI overbought');
+    }
+    
+    // MACD confirmation
+    if (prediction.macd && prediction.macd.macd > prediction.macd.signal && signal === 'BUY') {
+      signalStrength += 0.5;
+      signalReason.push('MACD bullish');
+    }
+    if (prediction.macd && prediction.macd.macd < prediction.macd.signal && signal === 'SELL') {
+      signalStrength += 0.5;
+      signalReason.push('MACD bearish');
+    }
+
+    // Moving average confirmation
+    if (prediction.sma5 && prediction.sma10) {
+      if (prediction.sma5 > prediction.sma10 && signal === 'BUY') {
+        signalStrength += 0.5;
+        signalReason.push('SMA5 > SMA10');
+      } else if (prediction.sma5 < prediction.sma10 && signal === 'SELL') {
+        signalStrength += 0.5;
+        signalReason.push('SMA5 < SMA10');
+      }
+    }
+
+    // Momentum confirmation
+    const momentumData = getMomentumDirection(prediction.momentum);
+    if (momentumData.direction.includes('Up') && signal === 'BUY') {
+      signalStrength += 0.5;
+      signalReason.push('Positive momentum');
+    } else if (momentumData.direction.includes('Down') && signal === 'SELL') {
+      signalStrength += 0.5;
+      signalReason.push('Negative momentum');
+    }
+
+    // Confidence threshold - only generate signals for high confidence predictions
+    if (prediction.confidence < 60) {
+      signal = 'HOLD';
+      signalReason = ['Low confidence'];
+    }
+
+    const isBuy = signal === 'BUY';
+    const pips = pair.symbol.includes('JPY') ? 0.01 : 0.0001;
+    
+    // Dynamic SL and TP calculation based on volatility and ATR
+    const atr = prediction.volatility * currentRate; // Approximate ATR
+    const slMultiplier = Math.max(1.5, Math.min(3, signalStrength));
+    const tpMultiplier = riskReward;
+    
+    const slDistance = atr * slMultiplier;
+    const tpDistance = slDistance * tpMultiplier;
+    
+    const sl = isBuy ? currentRate - slDistance : currentRate + slDistance;
+    const tp = isBuy ? currentRate + tpDistance : currentRate - tpDistance;
+    
+    // Lot size calculation with proper risk management
+    const riskAmount = accountBalance * (riskPercent / 100);
+    const slPips = Math.abs(currentRate - sl) / pips;
+    
+    // Forex lot size calculation (1 lot = 100,000 units)
+    const pipValue = pair.symbol.endsWith('USD') ? 10 : 10; // Simplified pip value
+    const lotSize = Math.min(10, Math.max(0.01, riskAmount / (slPips * pipValue)));
+
+    return {
+      signal: signal,
+      signalStrength: Math.min(5, signalStrength),
+      entry: currentRate,
+      sl: sl,
+      tp: tp,
+      lotSize: Number(lotSize.toFixed(2)),
+      confidence: prediction.confidence,
+      pipsToSL: Math.round(slPips),
+      pipsToTP: Math.round(Math.abs(tp - currentRate) / pips),
+      riskAmount: riskAmount,
+      potentialProfit: riskAmount * riskReward,
+      signalReason: signalReason,
+      isHighConfidence: prediction.confidence >= 80
+    };
   };
 
-  const momentumData = prediction?.momentum !== undefined ? getMomentumDirection(prediction.momentum) : null;
+  const tradeSignal = generateTradeSignal();
+  const momentumData = prediction ? getMomentumDirection(prediction.momentum) : null;
+
+  const getSignalIcon = (signal) => {
+    switch(signal) {
+      case 'BUY': return <TrendingUp className="w-4 h-4" />;
+      case 'SELL': return <TrendingDown className="w-4 h-4" />;
+      default: return <Minus className="w-4 h-4" />;
+    }
+  };
+
+  const getSignalColor = (signal, isHighConfidence) => {
+    if (signal === 'HOLD') return 'bg-slate-100 text-slate-600 border-slate-200';
+    
+    const baseColor = signal === 'BUY' 
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+      : 'bg-red-50 text-red-700 border-red-200';
+    
+    return isHighConfidence ? baseColor : baseColor.replace('50', '25');
+  };
+
+  const getSignalBadgeColor = (signal) => {
+    switch(signal) {
+      case 'BUY': return 'bg-emerald-600 text-white';
+      case 'SELL': return 'bg-red-600 text-white';
+      default: return 'bg-slate-500 text-white';
+    }
+  };
 
   return (
     <div className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 border border-slate-200 overflow-hidden group hover:scale-[1.02]">
@@ -478,6 +940,127 @@ const CurrencyCard = ({ pair, currentRate, previousRate, prediction, isLoading, 
               )}
             </div>
 
+            {/* Momentum Indicator */}
+            {momentumData && (
+              <div className={`bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-4 border border-slate-200`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Activity className="w-4 h-4 text-slate-600" />
+                    <span className="text-sm font-medium text-slate-700">Momentum</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${momentumData.color}`}>
+                    <momentumData.icon className="w-4 h-4" />
+                    <span className="font-semibold">{momentumData.direction}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Trading Signal Section */}
+            {tradeSignal && (
+              <div className={`rounded-xl p-4 border-2 ${getSignalColor(tradeSignal.signal, tradeSignal.isHighConfidence)}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <Signal className="w-4 h-4" />
+                    <span className="font-semibold text-sm">Trading Signal</span>
+                    {tradeSignal.isHighConfidence && (
+                      <Target className="w-4 h-4 text-emerald-600" />
+                    )}
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-bold flex items-center ${getSignalBadgeColor(tradeSignal.signal)}`}>
+                    {getSignalIcon(tradeSignal.signal)}
+                    <span className="ml-1">{tradeSignal.signal}</span>
+                  </span>
+                </div>
+
+                {tradeSignal.signal !== 'HOLD' && (
+                  <div className="space-y-3">
+                    {/* Entry, SL, TP Row */}
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-white bg-opacity-70 p-2 rounded border">
+                        <div className="text-slate-600 font-medium">Entry</div>
+                        <div className="font-bold text-slate-800">{formatPrice(tradeSignal.entry)}</div>
+                      </div>
+                      <div className="bg-red-100 p-2 rounded border border-red-200">
+                        <div className="text-red-700 font-medium">SL</div>
+                        <div className="font-bold text-red-800">{formatPrice(tradeSignal.sl)}</div>
+                        <div className="text-red-600 text-xs">{tradeSignal.pipsToSL}p</div>
+                      </div>
+                      <div className="bg-emerald-100 p-2 rounded border border-emerald-200">
+                        <div className="text-emerald-700 font-medium">TP</div>
+                        <div className="font-bold text-emerald-800">{formatPrice(tradeSignal.tp)}</div>
+                        <div className="text-emerald-600 text-xs">{tradeSignal.pipsToTP}p</div>
+                      </div>
+                    </div>
+
+                    {/* Lot Size and Risk */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-blue-50 p-2 rounded border border-blue-200">
+                        <div className="text-blue-700 font-medium flex items-center">
+                          <Calculator className="w-3 h-3 mr-1" />
+                          Lot Size
+                        </div>
+                        <div className="font-bold text-blue-800">{tradeSignal.lotSize}</div>
+                      </div>
+                      <div className="bg-purple-50 p-2 rounded border border-purple-200">
+                        <div className="text-purple-700 font-medium">Risk/Reward</div>
+                        <div className="font-bold text-purple-800">
+                          ${tradeSignal.riskAmount.toFixed(0)} / ${tradeSignal.potentialProfit.toFixed(0)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Signal Strength and Confidence */}
+                    <div className="flex items-center justify-between bg-white bg-opacity-70 p-2 rounded border">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-slate-600">Strength:</span>
+                        <div className="flex space-x-1">
+                          {[...Array(5)].map((_, i) => (
+                            <div 
+                              key={i} 
+                              className={`w-2 h-2 rounded-full ${
+                                i < tradeSignal.signalStrength 
+                                  ? tradeSignal.signal === 'BUY' ? 'bg-emerald-500' : 'bg-red-500'
+                                  : 'bg-slate-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="text-xs">
+                        <span className="text-slate-600">Confidence: </span>
+                        <span className="font-bold text-indigo-600">{tradeSignal.confidence}%</span>
+                      </div>
+                    </div>
+
+                    {/* Signal Reasons */}
+                    <div className="text-xs">
+                      <div className="text-slate-600 mb-1">Reasons:</div>
+                      <div className="flex flex-wrap gap-1">
+                        {tradeSignal.signalReason.map((reason, index) => (
+                          <span 
+                            key={index}
+                            className="bg-slate-200 text-slate-700 px-2 py-1 rounded text-xs"
+                          >
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {tradeSignal.signal === 'HOLD' && (
+                  <div className="text-center py-2">
+                    <div className="text-slate-600 text-sm">No clear signal</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      Reasons: {tradeSignal.signalReason.join(', ')}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Technical Indicators */}
             {prediction && (
               <div className="grid grid-cols-2 gap-3">
@@ -510,10 +1093,10 @@ const CurrencyCard = ({ pair, currentRate, previousRate, prediction, isLoading, 
 
                 {/* Volatility */}
                 {prediction.volatility !== undefined && (
-                  <div className={`p-3 rounded-lg border ${getVolatilityLevel(prediction.volatility).bgColor} border-slate-200`}>
-                    <div className="text-slate-700 font-medium text-xs mb-1">Volatility</div>
-                    <div className={`font-bold ${getVolatilityLevel(prediction.volatility).color}`}>
-                      {getVolatilityLevel(prediction.volatility).level}
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                    <div className="text-amber-700 font-medium text-xs mb-1">Volatility</div>
+                    <div className="font-bold text-amber-800">
+                      {(prediction.volatility * 100).toFixed(2)}%
                     </div>
                   </div>
                 )}
@@ -556,14 +1139,13 @@ const CurrencyCard = ({ pair, currentRate, previousRate, prediction, isLoading, 
                         {((prediction.predictedPrice - currentRate) / currentRate * 100).toFixed(2)}%
                       </span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">Method:</span>
-                      <span className="text-indigo-600 font-semibold">Hybrid AI + Linear</span>
-                    </div>
                   </div>
                 )}
               </div>
             )}
+
+   
+
 
             {/* Future Predictions Toggle */}
             {prediction?.linearRegression?.futurePredictions && (
