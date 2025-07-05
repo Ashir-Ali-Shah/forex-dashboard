@@ -38,7 +38,8 @@ import {
   ChevronUp,
   Settings,
   Target,
-  TrendingFlat
+  TrendingFlat,
+  AlertTriangle
 } from 'lucide-react';
 
 // Utility function for momentum direction
@@ -80,7 +81,6 @@ const generateRealisticRate = (symbol, previousRate) => {
   };
 
   if (previousRate) {
-    // Generate realistic price movement (±0.5% max change)
     const maxChange = 0.005;
     const change = (Math.random() - 0.5) * 2 * maxChange;
     return previousRate * (1 + change);
@@ -112,18 +112,15 @@ class LinearRegressionModel {
     const x = this.dataPoints.map(p => p.x);
     const y = this.dataPoints.map(p => p.y);
     
-    // Calculate means
     const meanX = x.reduce((a, b) => a + b, 0) / n;
     const meanY = y.reduce((a, b) => a + b, 0) / n;
     
-    // Calculate slope and intercept
     const numerator = x.reduce((acc, xi, i) => acc + (xi - meanX) * (y[i] - meanY), 0);
     const denominator = x.reduce((acc, xi) => acc + Math.pow(xi - meanX, 2), 0);
     
     this.slope = denominator !== 0 ? numerator / denominator : 0;
     this.intercept = meanY - this.slope * meanX;
     
-    // Calculate R-squared
     const totalSumSquares = y.reduce((acc, yi) => acc + Math.pow(yi - meanY, 2), 0);
     const residualSumSquares = y.reduce((acc, yi, i) => {
       const predicted = this.slope * x[i] + this.intercept;
@@ -132,7 +129,6 @@ class LinearRegressionModel {
     
     this.rSquared = totalSumSquares !== 0 ? 1 - (residualSumSquares / totalSumSquares) : 0;
     
-    // Calculate standard error
     this.standardError = Math.sqrt(residualSumSquares / Math.max(n - 2, 1));
     
     return this;
@@ -142,7 +138,6 @@ class LinearRegressionModel {
     const nextX = this.dataPoints.length + steps - 1;
     const prediction = this.slope * nextX + this.intercept;
     
-    // Calculate confidence interval (95%)
     const t_value = 1.96;
     const margin = t_value * this.standardError;
     
@@ -266,7 +261,6 @@ class ForexPredictor {
     
     const prices = data.map(d => d.price);
     
-    // Calculate EMAs
     const calculateEMA = (prices, period) => {
       const multiplier = 2 / (period + 1);
       let ema = prices[0];
@@ -280,8 +274,7 @@ class ForexPredictor {
     const slowEMA = calculateEMA(prices, slowPeriod);
     const macd = fastEMA - slowEMA;
     
-    // For simplicity, using a basic signal calculation
-    const signal = macd * 0.1; // Simplified signal line
+    const signal = macd * 0.1;
     const histogram = macd - signal;
     
     return { macd, signal, histogram };
@@ -426,11 +419,12 @@ class ForexPredictor {
 }
 
 // Enhanced Trade Settings Component
-const TradeSettings = ({ currencyData, onTradeSignal }) => {
+const TradeSettings = ({ currencyData }) => {
   const [riskPercent, setRiskPercent] = useState(2);
   const [riskReward, setRiskReward] = useState(2);
   const [accountBalance, setAccountBalance] = useState(10000);
   const [selectedPair, setSelectedPair] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Find highest confidence pair
   const highestConfidencePair = currencyData.reduce((best, current) => {
@@ -449,7 +443,7 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
     if (!price) return '---';
     if (symbol.includes('JPY')) return price.toFixed(3);
     if (symbol === 'XAUUSD') return price.toFixed(2);
-    return price.toFixed(4);
+    return price.toFixed(5);
   };
 
   const generateTradeSignal = () => {
@@ -458,33 +452,58 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
 
     const { prediction, currentRate, pair } = data;
     
-    // Determine signal based on multiple factors
+    // Enhanced signal generation with conflict detection
     let signal = 'HOLD';
     let signalStrength = 0;
+    let conflictWarning = false;
     
-    // Trend analysis
-    if (prediction.trend === 'bullish') {
-      signal = 'BUY';
-      signalStrength += prediction.trendStrength || 1;
-    } else if (prediction.trend === 'bearish') {
-      signal = 'SELL';
-      signalStrength += prediction.trendStrength || 1;
+    const priceDirection = prediction.predictedPrice > currentRate ? 'bullish' : 'bearish';
+    
+    if (prediction.trend !== priceDirection && prediction.trend !== 'neutral') {
+      conflictWarning = true;
+      if (prediction.trendStrength >= 2) {
+        signal = prediction.trend === 'bullish' ? 'BUY' : 'SELL';
+        signalStrength += prediction.trendStrength;
+      } else if (Math.abs(prediction.predictedPrice - currentRate) > currentRate * 0.002) {
+        signal = priceDirection === 'bullish' ? 'BUY' : 'SELL';
+        signalStrength += 1;
+      }
+    } else {
+      if (prediction.predictedPrice > currentRate * 1.001) {
+        signal = 'BUY';
+        signalStrength += 1;
+      } else if (prediction.predictedPrice < currentRate * 0.999) {
+        signal = 'SELL';
+        signalStrength += 1;
+      }
     }
     
-    // RSI confirmation
+    if (prediction.trend === 'bullish' && signal === 'BUY') signalStrength += 1;
+    if (prediction.trend === 'bearish' && signal === 'SELL') signalStrength += 1;
+    
     if (prediction.rsi < 30 && signal === 'BUY') signalStrength += 1;
     if (prediction.rsi > 70 && signal === 'SELL') signalStrength += 1;
     
-    // MACD confirmation
     if (prediction.macd.macd > prediction.macd.signal && signal === 'BUY') signalStrength += 0.5;
     if (prediction.macd.macd < prediction.macd.signal && signal === 'SELL') signalStrength += 0.5;
     
+    if (prediction.momentum > 0.001 && signal === 'BUY') signalStrength += 1;
+    if (prediction.momentum < -0.001 && signal === 'SELL') signalStrength += 1;
+    
+    if (conflictWarning) {
+      signalStrength = Math.max(0, signalStrength - 1);
+    }
+    
+    if (prediction.confidence < 60) {
+      signal = 'HOLD';
+      signalStrength = 0;
+    }
+
     const isBuy = signal === 'BUY';
     const pips = pair.symbol.includes('JPY') ? 0.01 : 0.0001;
     
-    // Dynamic SL and TP calculation based on volatility and ATR
-    const atr = prediction.volatility * currentRate; // Approximate ATR
-    const slMultiplier = Math.max(1.5, Math.min(3, signalStrength));
+    const atr = prediction.volatility * currentRate;
+    const slMultiplier = Math.max(1.5, Math.min(3, 2 + (prediction.volatility * 5)));
     const tpMultiplier = riskReward;
     
     const slDistance = atr * slMultiplier;
@@ -493,12 +512,14 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
     const sl = isBuy ? currentRate - slDistance : currentRate + slDistance;
     const tp = isBuy ? currentRate + tpDistance : currentRate - tpDistance;
     
-    // Lot size calculation with proper risk management
     const riskAmount = accountBalance * (riskPercent / 100);
     const slPips = Math.abs(currentRate - sl) / pips;
     
-    // Forex lot size calculation (1 lot = 100,000 units)
-    const pipValue = pair.symbol.endsWith('USD') ? 10 : 10; // Simplified pip value
+    let pipValue = 10;
+    if (pair.symbol.includes('JPY')) {
+      pipValue = pair.symbol.startsWith('USD') ? 10 : 10;
+    }
+    
     const lotSize = Math.min(10, Math.max(0.01, riskAmount / (slPips * pipValue)));
 
     return {
@@ -507,6 +528,9 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
       signal: signal,
       signalStrength: Math.min(5, signalStrength),
       entry: currentRate,
+      predictedPrice: prediction.predictedPrice,
+      priceChange: prediction.predictedPrice - currentRate,
+      priceChangePercent: ((prediction.predictedPrice - currentRate) / currentRate) * 100,
       sl: sl,
       tp: tp,
       lotSize: Number(lotSize.toFixed(2)),
@@ -515,7 +539,10 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
       pipsToTP: Math.round(Math.abs(tp - currentRate) / pips),
       riskAmount: riskAmount,
       potentialProfit: riskAmount * riskReward,
+      conflictWarning: conflictWarning,
       indicators: {
+        trend: prediction.trend,
+        priceDirection: priceDirection,
         rsi: prediction.rsi,
         macd: prediction.macd,
         bollinger: prediction.bollinger,
@@ -533,33 +560,46 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
 
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6">
-      <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center">
-        <Settings className="w-5 h-5 mr-2 text-indigo-600" />
-        Trade Settings & Signals
-      </h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-slate-800 flex items-center">
+          <Settings className="w-5 h-5 mr-2 text-indigo-600" />
+          Trade Settings & MT5 Signals
+        </h2>
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex items-center text-sm text-slate-600 hover:text-indigo-600 transition-colors"
+        >
+          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          Advanced
+        </button>
+      </div>
 
       <div className="space-y-6">
-        {/* Settings */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Currency Pair</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Currency Pair
+                <span className="text-xs text-slate-500 ml-2">(Auto-selected: Highest Confidence)</span>
+              </label>
               <select 
                 value={selectedPair}
                 onChange={(e) => setSelectedPair(e.target.value)}
                 className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">Select a pair...</option>
-                {currencyData.map(data => (
-                  <option key={data.pair.symbol} value={data.pair.symbol}>
-                    {data.pair.symbol} - {data.pair.name} ({data.prediction?.confidence || 0}% confidence)
-                  </option>
-                ))}
+                {currencyData
+                  .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
+                  .map(data => (
+                    <option key={data.pair.symbol} value={data.pair.symbol}>
+                      {data.pair.symbol} - {data.pair.name} ({data.prediction?.confidence || 0}% confidence)
+                    </option>
+                  ))}
               </select>
               {highestConfidencePair?.pair?.symbol === selectedPair && (
                 <p className="text-xs text-emerald-600 mt-1 flex items-center">
                   <Target className="w-3 h-3 mr-1" />
-                  Highest confidence pair
+                  Highest confidence pair selected
                 </p>
               )}
             </div>
@@ -602,7 +642,6 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
             </div>
           </div>
 
-          {/* Technical Indicators Display */}
           {selectedData?.prediction && (
             <div className="bg-slate-50 rounded-xl p-4">
               <h3 className="font-semibold text-slate-700 mb-3 flex items-center">
@@ -653,47 +692,83 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
           )}
         </div>
 
-
-        {/* Trade Signal */}
         {tradeSignal && (
-          <div className={`bg-gradient-to-br ${tradeSignal.signal === 'BUY' ? 'from-emerald-50 to-green-100 border-emerald-200' : 'from-red-50 to-red-100 border-red-200'} rounded-xl p-4 border`}>
+          <div className={`bg-gradient-to-br ${tradeSignal.signal === 'BUY' ? 'from-emerald-50 to-green-100 border-emerald-200' : tradeSignal.signal === 'SELL' ? 'from-red-50 to-red-100 border-red-200' : 'from-slate-50 to-slate-100 border-slate-200'} rounded-xl p-4 border`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-800">Trade Signal</h3>
-              <span className={`px-3 py-1 rounded-full text-sm font-bold ${tradeSignal.signal === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
-                {tradeSignal.signal}
-              </span>
+              <div className="flex items-center space-x-3">
+                {tradeSignal.conflictWarning && (
+                  <span className="flex items-center text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Conflict Detected
+                  </span>
+                )}
+                <span className={`px-3 py-1 rounded-full text-sm font-bold ${tradeSignal.signal === 'BUY' ? 'bg-emerald-600 text-white' : tradeSignal.signal === 'SELL' ? 'bg-red-600 text-white' : 'bg-slate-500 text-white'}`}>
+                  {tradeSignal.signal}
+                </span>
+              </div>
             </div>
             
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-white bg-opacity-70 p-2 rounded">
-                  <div className="text-slate-600">Entry</div>
-                  <div className="font-bold">{tradeSignal.entry.toFixed(4)}</div>
+            {tradeSignal.signal !== 'HOLD' ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-white bg-opacity-70 p-2 rounded">
+                    <div className="text-slate-600">Entry</div>
+                    <div className="font-bold">{formatPrice(tradeSignal.entry, selectedPair)}</div>
+                    <div className="text-xs text-slate-500">
+                      Predicted: {formatPrice(tradeSignal.predictedPrice, selectedPair)}
+                    </div>
+                  </div>
+                  <div className="bg-white bg-opacity-70 p-2 rounded">
+                    <div className="text-slate-600">Lot Size</div>
+                    <div className="font-bold">{tradeSignal.lotSize}</div>
+                    <div className="text-xs text-slate-500">
+                      Risk: ${tradeSignal.riskAmount.toFixed(2)}
+                    </div>
+                  </div>
                 </div>
-                <div className="bg-white bg-opacity-70 p-2 rounded">
-                  <div className="text-slate-600">Lot Size</div>
-                  <div className="font-bold">{tradeSignal.lotSize}</div>
+                
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-red-100 p-2 rounded">
+                    <div className="text-red-700">SL</div>
+                    <div className="font-bold text-red-800">{formatPrice(tradeSignal.sl, selectedPair)}</div>
+                    <div className="text-xs text-red-600">{tradeSignal.pipsToSL} pips</div>
+                  </div>
+                  <div className="bg-emerald-100 p-2 rounded">
+                    <div className="text-emerald-700">TP</div>
+                    <div className="font-bold text-emerald-800">{formatPrice(tradeSignal.tp, selectedPair)}</div>
+                    <div className="text-xs text-emerald-600">{tradeSignal.pipsToTP} pips</div>
+                  </div>
+                </div>
+                
+                <div className="bg-white bg-opacity-70 p-2 rounded text-center">
+                  <div className="text-slate-600 text-sm">Confidence</div>
+                  <div className="font-bold text-indigo-600">{tradeSignal.confidence}%</div>
+                </div>
+
+                {tradeSignal.conflictWarning && (
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded text-xs text-amber-800">
+                    <div className="flex items-start">
+                      <AlertTriangle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold">Warning: Conflicting Signals Detected</p>
+                        <p className="mt-1">
+                          Trend is {selectedData.prediction.trend} but price prediction suggests {tradeSignal.indicators.priceDirection} movement.
+                          Proceed with caution.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="text-slate-600 mb-2">No clear trading signal</div>
+                <div className="text-xs text-slate-500">
+                  {tradeSignal.confidence < 60 ? 'Confidence too low' : 'Market conditions neutral'}
                 </div>
               </div>
-              
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="bg-red-100 p-2 rounded">
-                  <div className="text-red-700">SL</div>
-                  <div className="font-bold text-red-800">{tradeSignal.sl.toFixed(4)}</div>
-                  <div className="text-xs text-red-600">{tradeSignal.pipsToSL} pips</div>
-                </div>
-                <div className="bg-emerald-100 p-2 rounded">
-                  <div className="text-emerald-700">TP</div>
-                  <div className="font-bold text-emerald-800">{tradeSignal.tp.toFixed(4)}</div>
-                  <div className="text-xs text-emerald-600">{tradeSignal.pipsToTP} pips</div>
-                </div>
-              </div>
-              
-              <div className="bg-white bg-opacity-70 p-2 rounded text-center">
-                <div className="text-slate-600 text-sm">Confidence</div>
-                <div className="font-bold text-indigo-600">{tradeSignal.confidence}%</div>
-              </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -701,7 +776,7 @@ const TradeSettings = ({ currencyData, onTradeSignal }) => {
   );
 };
 
-// Enhanced Currency Card Component with Trading Signals
+// Enhanced Currency Card Component
 const CurrencyCard = ({ 
   pair, 
   currentRate, 
@@ -709,7 +784,6 @@ const CurrencyCard = ({
   prediction, 
   isLoading, 
   lastUpdate,
-  // Trading settings props
   riskPercent = 2,
   riskReward = 2,
   accountBalance = 10000
@@ -752,21 +826,18 @@ const CurrencyCard = ({
   };
 
   const getRSIColor = (rsi) => {
-    if (rsi > 70) return 'text-red-600 bg-red-50'; // Overbought
-    if (rsi < 30) return 'text-emerald-600 bg-emerald-50'; // Oversold
-    return 'text-blue-600 bg-blue-50'; // Normal
+    if (rsi > 70) return 'text-red-600 bg-red-50';
+    if (rsi < 30) return 'text-emerald-600 bg-emerald-50';
+    return 'text-blue-600 bg-blue-50';
   };
 
-  // Generate Trading Signal
   const generateTradeSignal = () => {
     if (!prediction || !currentRate) return null;
 
-    // Determine signal based on multiple factors
     let signal = 'HOLD';
     let signalStrength = 0;
     let signalReason = [];
     
-    // Trend analysis
     if (prediction.trend === 'bullish') {
       signal = 'BUY';
       signalStrength += prediction.trendStrength || 1;
@@ -777,7 +848,6 @@ const CurrencyCard = ({
       signalReason.push('Bearish trend');
     }
     
-    // RSI confirmation
     if (prediction.rsi < 30 && signal === 'BUY') {
       signalStrength += 1;
       signalReason.push('RSI oversold');
@@ -787,7 +857,6 @@ const CurrencyCard = ({
       signalReason.push('RSI overbought');
     }
     
-    // MACD confirmation
     if (prediction.macd && prediction.macd.macd > prediction.macd.signal && signal === 'BUY') {
       signalStrength += 0.5;
       signalReason.push('MACD bullish');
@@ -797,7 +866,6 @@ const CurrencyCard = ({
       signalReason.push('MACD bearish');
     }
 
-    // Moving average confirmation
     if (prediction.sma5 && prediction.sma10) {
       if (prediction.sma5 > prediction.sma10 && signal === 'BUY') {
         signalStrength += 0.5;
@@ -808,7 +876,6 @@ const CurrencyCard = ({
       }
     }
 
-    // Momentum confirmation
     const momentumData = getMomentumDirection(prediction.momentum);
     if (momentumData.direction.includes('Up') && signal === 'BUY') {
       signalStrength += 0.5;
@@ -818,7 +885,6 @@ const CurrencyCard = ({
       signalReason.push('Negative momentum');
     }
 
-    // Confidence threshold - only generate signals for high confidence predictions
     if (prediction.confidence < 60) {
       signal = 'HOLD';
       signalReason = ['Low confidence'];
@@ -827,8 +893,7 @@ const CurrencyCard = ({
     const isBuy = signal === 'BUY';
     const pips = pair.symbol.includes('JPY') ? 0.01 : 0.0001;
     
-    // Dynamic SL and TP calculation based on volatility and ATR
-    const atr = prediction.volatility * currentRate; // Approximate ATR
+    const atr = prediction.volatility * currentRate;
     const slMultiplier = Math.max(1.5, Math.min(3, signalStrength));
     const tpMultiplier = riskReward;
     
@@ -838,12 +903,10 @@ const CurrencyCard = ({
     const sl = isBuy ? currentRate - slDistance : currentRate + slDistance;
     const tp = isBuy ? currentRate + tpDistance : currentRate - tpDistance;
     
-    // Lot size calculation with proper risk management
     const riskAmount = accountBalance * (riskPercent / 100);
     const slPips = Math.abs(currentRate - sl) / pips;
     
-    // Forex lot size calculation (1 lot = 100,000 units)
-    const pipValue = pair.symbol.endsWith('USD') ? 10 : 10; // Simplified pip value
+    const pipValue = pair.symbol.endsWith('USD') ? 10 : 10;
     const lotSize = Math.min(10, Math.max(0.01, riskAmount / (slPips * pipValue)));
 
     return {
@@ -917,7 +980,6 @@ const CurrencyCard = ({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Current Price */}
             <div className="bg-slate-50 rounded-xl p-4">
               <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wide">Current Price</div>
               <div className="text-3xl font-bold text-slate-900 mb-2">
@@ -940,7 +1002,6 @@ const CurrencyCard = ({
               )}
             </div>
 
-            {/* Momentum Indicator */}
             {momentumData && (
               <div className={`bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-4 border border-slate-200`}>
                 <div className="flex items-center justify-between">
@@ -956,7 +1017,6 @@ const CurrencyCard = ({
               </div>
             )}
 
-            {/* Trading Signal Section */}
             {tradeSignal && (
               <div className={`rounded-xl p-4 border-2 ${getSignalColor(tradeSignal.signal, tradeSignal.isHighConfidence)}`}>
                 <div className="flex items-center justify-between mb-3">
@@ -975,7 +1035,6 @@ const CurrencyCard = ({
 
                 {tradeSignal.signal !== 'HOLD' && (
                   <div className="space-y-3">
-                    {/* Entry, SL, TP Row */}
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       <div className="bg-white bg-opacity-70 p-2 rounded border">
                         <div className="text-slate-600 font-medium">Entry</div>
@@ -993,7 +1052,6 @@ const CurrencyCard = ({
                       </div>
                     </div>
 
-                    {/* Lot Size and Risk */}
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-blue-50 p-2 rounded border border-blue-200">
                         <div className="text-blue-700 font-medium flex items-center">
@@ -1010,7 +1068,6 @@ const CurrencyCard = ({
                       </div>
                     </div>
 
-                    {/* Signal Strength and Confidence */}
                     <div className="flex items-center justify-between bg-white bg-opacity-70 p-2 rounded border">
                       <div className="flex items-center space-x-2">
                         <span className="text-xs text-slate-600">Strength:</span>
@@ -1033,7 +1090,6 @@ const CurrencyCard = ({
                       </div>
                     </div>
 
-                    {/* Signal Reasons */}
                     <div className="text-xs">
                       <div className="text-slate-600 mb-1">Reasons:</div>
                       <div className="flex flex-wrap gap-1">
@@ -1061,10 +1117,8 @@ const CurrencyCard = ({
               </div>
             )}
 
-            {/* Technical Indicators */}
             {prediction && (
               <div className="grid grid-cols-2 gap-3">
-                {/* RSI */}
                 {prediction.rsi && (
                   <div className={`p-3 rounded-lg border ${getRSIColor(prediction.rsi)}`}>
                     <div className="text-xs font-medium mb-1">RSI (14)</div>
@@ -1076,7 +1130,6 @@ const CurrencyCard = ({
                   </div>
                 )}
 
-                {/* Moving Averages */}
                 {prediction.sma5 && (
                   <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
                     <div className="text-blue-700 font-medium text-xs mb-1">SMA 5</div>
@@ -1091,7 +1144,6 @@ const CurrencyCard = ({
                   </div>
                 )}
 
-                {/* Volatility */}
                 {prediction.volatility !== undefined && (
                   <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
                     <div className="text-amber-700 font-medium text-xs mb-1">Volatility</div>
@@ -1103,7 +1155,6 @@ const CurrencyCard = ({
               </div>
             )}
 
-            {/* Overall Prediction */}
             {prediction && prediction.predictedPrice && (
               <div className="bg-gradient-to-br from-indigo-50 to-purple-100 rounded-xl p-4 border border-indigo-200">
                 <div className="flex items-center justify-between mb-3">
@@ -1144,10 +1195,6 @@ const CurrencyCard = ({
               </div>
             )}
 
-   
-
-
-            {/* Future Predictions Toggle */}
             {prediction?.linearRegression?.futurePredictions && (
               <button
                 onClick={() => setShowDetails(!showDetails)}
@@ -1159,7 +1206,6 @@ const CurrencyCard = ({
               </button>
             )}
 
-            {/* Future Predictions Details */}
             {showDetails && prediction?.linearRegression?.futurePredictions && (
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3">
                 <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center">
@@ -1180,7 +1226,6 @@ const CurrencyCard = ({
               </div>
             )}
 
-            {/* Last update and connection status */}
             <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
               <div className="flex items-center">
                 <Clock className="w-3 h-3 mr-1" />
@@ -1197,7 +1242,6 @@ const CurrencyCard = ({
     </div>
   );
 };
-
 
 // Forex Dashboard Component
 const ForexDashboard = () => {
@@ -1218,7 +1262,6 @@ const ForexDashboard = () => {
         const previousData = currencyData.find(d => d.pair.symbol === pair.symbol) || {};
         const currentRate = generateRealisticRate(pair.symbol, previousData.currentRate);
         
-        // Add data point to predictor
         predictor.addDataPoint(pair.symbol, currentRate);
         
         return {
@@ -1358,7 +1401,6 @@ const ForexDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      {/* Header */}
       <header className="bg-gradient-to-r from-indigo-700 to-purple-800 text-white shadow-lg">
         <div className="container mx-auto px-4 py-6 flex flex-col md:flex-row justify-between items-center">
           <div className="flex items-center space-x-3 mb-4 md:mb-0">
@@ -1381,13 +1423,10 @@ const ForexDashboard = () => {
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Refresh Data
             </button>
-            
-            
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
@@ -1398,8 +1437,9 @@ const ForexDashboard = () => {
           </div>
         )}
         
-        {/* Currency Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+        <TradeSettings currencyData={currencyData} />
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8 mt-8">
           {currencyData.map(data => (
             <CurrencyCard 
               key={data.pair.symbol}
@@ -1413,7 +1453,6 @@ const ForexDashboard = () => {
           ))}
         </div>
         
-        {/* Charts Section */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
           <div className="flex flex-wrap items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-slate-800 flex items-center">
@@ -1425,7 +1464,8 @@ const ForexDashboard = () => {
               <select 
                 value={selectedPair}
                 onChange={(e) => setSelectedPair(e.target.value)}
-                className="bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"              >
+                className="bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
                 {CURRENCY_PAIRS.map(pair => (
                   <option key={pair.symbol} value={pair.symbol}>{pair.symbol}</option>
                 ))}
@@ -1434,7 +1474,8 @@ const ForexDashboard = () => {
               <select 
                 value={chartType}
                 onChange={(e) => setChartType(e.target.value)}
-                className="bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"              >
+                className="bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
                 <option value="area">Area Chart</option>
                 <option value="line">Line Chart</option>
                 <option value="bar">Bar Chart</option>
@@ -1443,9 +1484,9 @@ const ForexDashboard = () => {
               <select 
                 value={timeFrame}
                 onChange={(e) => setTimeFrame(e.target.value)}
-                className="bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"              >
+                className="bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
                 <option value="30m">30 Minutes</option>
-                
               </select>
             </div>
           </div>
@@ -1457,11 +1498,19 @@ const ForexDashboard = () => {
           </div>
         </div>
         
-        {/* Prediction Chart */}
-          
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center mb-6">
+            <Brain className="w-5 h-5 mr-2 text-indigo-600" />
+            AI Price Predictions
+          </h2>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              {renderPredictionChart()}
+            </ResponsiveContainer>
+          </div>
+        </div>
       </main>
 
-      {/* Footer */}
       <footer className="bg-gradient-to-r from-slate-800 to-slate-900 text-white py-6">
         <div className="container mx-auto px-4 text-center text-sm text-slate-400">
           <p>Forex Trading Dashboard • AI-Powered Analytics • Data updates every 30 seconds</p>
