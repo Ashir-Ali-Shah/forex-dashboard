@@ -520,7 +520,7 @@ const TradeSettings = ({ currencyData }) => {
       pipValue = pair.symbol.startsWith('USD') ? 10 : 10;
     }
     
-    const lotSize = Math.min(10, Math.max(0.01, riskAmount / (slPips * pipValue)));
+    const lotSize = Math.min(10, Math.max(0.01, (riskAmount / 100) / (slPips * pipValue)));
 
     return {
       pair: selectedPair,
@@ -577,69 +577,52 @@ const TradeSettings = ({ currencyData }) => {
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Currency Pair
-                <span className="text-xs text-slate-500 ml-2">(Auto-selected: Highest Confidence)</span>
-              </label>
-              <select 
-                value={selectedPair}
-                onChange={(e) => setSelectedPair(e.target.value)}
-                className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">Select a pair...</option>
-                {currencyData
-                  .sort((a, b) => (b.prediction?.confidence || 0) - (a.prediction?.confidence || 0))
-                  .map(data => (
-                    <option key={data.pair.symbol} value={data.pair.symbol}>
-                      {data.pair.symbol} - {data.pair.name} ({data.prediction?.confidence || 0}% confidence)
-                    </option>
-                  ))}
-              </select>
-              {highestConfidencePair?.pair?.symbol === selectedPair && (
-                <p className="text-xs text-emerald-600 mt-1 flex items-center">
-                  <Target className="w-3 h-3 mr-1" />
-                  Highest confidence pair selected
-                </p>
-              )}
-            </div>
+          <div>
+  
+  
+  
+  {highestConfidencePair?.pair?.symbol === selectedPair && (
+    <p className="text-xs text-emerald-600 mt-1 flex items-center">
+      <Target className="w-3 h-3 mr-1" />
+      Highest confidence pair selected
+    </p>
+  )}
+</div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Risk %</label>
-                <input
-                  type="number"
-                  min="0.5"
-                  max="10"
-                  step="0.5"
-                  value={riskPercent}
-                  onChange={(e) => setRiskPercent(Number(e.target.value))}
-                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">R:R Ratio</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="5"
-                  step="0.5"
-                  value={riskReward}
-                  onChange={(e) => setRiskReward(Number(e.target.value))}
-                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Balance ($)</label>
-                <input
-                  type="number"
-                  min="1000"
-                  value={accountBalance}
-                  onChange={(e) => setAccountBalance(Number(e.target.value))}
-                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
+            <div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">Risk %</label>
+  <input
+    type="number"
+    min="0.5"
+    max="10"
+    step="0.5"
+    value={riskPercent}
+    onChange={(e) => setRiskPercent(Number(e.target.value))}
+    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+  />
+</div>
+<div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">R:R Ratio</label>
+  <input
+    type="number"
+    min="1"
+    max="5"
+    step="0.5"
+    value={riskReward}
+    onChange={(e) => setRiskReward(Number(e.target.value))}
+    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+  />
+</div>
+<div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">Balance ($)</label>
+  <input
+    type="number"
+    min="1000"
+    value={accountBalance}
+    onChange={(e) => setAccountBalance(Number(e.target.value))}
+    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+  />
+</div>
           </div>
 
           {selectedData?.prediction && (
@@ -907,7 +890,7 @@ const CurrencyCard = ({
     const slPips = Math.abs(currentRate - sl) / pips;
     
     const pipValue = pair.symbol.endsWith('USD') ? 10 : 10;
-    const lotSize = Math.min(10, Math.max(0.01, riskAmount / (slPips * pipValue)));
+    const lotSize = Math.min(10, Math.max(0.01, (riskAmount / 100) / (slPips * pipValue)));
 
     return {
       signal: signal,
