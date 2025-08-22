@@ -425,6 +425,8 @@ const TradeSettings = ({ currencyData }) => {
   const [accountBalance, setAccountBalance] = useState(10000);
   const [selectedPair, setSelectedPair] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [manualLotSize, setManualLotSize] = useState(0.01);
+  const [useManualLotSize, setUseManualLotSize] = useState(false);
 
   // Find highest confidence pair
   const highestConfidencePair = currencyData.reduce((best, current) => {
@@ -515,12 +517,30 @@ const TradeSettings = ({ currencyData }) => {
     const riskAmount = accountBalance * (riskPercent / 100);
     const slPips = Math.abs(currentRate - sl) / pips;
     
-    let pipValue = 10;
+    // Calculate pip value based on pair and account currency
+    let pipValue = 1; // Base pip value in account currency
     if (pair.symbol.includes('JPY')) {
-      pipValue = pair.symbol.startsWith('USD') ? 10 : 10;
+      pipValue = (1 / currentRate) * 100000; // For JPY pairs
+    } else if (pair.symbol === 'XAUUSD') {
+      pipValue = 10; // Gold typically $10 per pip for 1 lot
+    } else {
+      pipValue = 10; // Standard for major pairs ($10 per pip for 1 lot)
     }
     
-    const lotSize = Math.min(10, Math.max(0.01, (riskAmount / 100) / (slPips * pipValue)));
+    // Calculate lot size based on risk management or use manual input
+    let lotSize;
+    if (useManualLotSize) {
+      lotSize = manualLotSize;
+    } else {
+      const calculatedLotSize = (riskAmount / (slPips * pipValue));
+      lotSize = Math.min(10, Math.max(0.01, calculatedLotSize));
+      // Round to MT5 standard increments
+      lotSize = Math.round(lotSize * 100) / 100;
+    }
+
+    // Calculate actual risk based on lot size
+    const actualRisk = slPips * pipValue * lotSize;
+    const potentialProfit = actualRisk * riskReward;
 
     return {
       pair: selectedPair,
@@ -537,8 +557,9 @@ const TradeSettings = ({ currencyData }) => {
       confidence: prediction.confidence,
       pipsToSL: Math.round(slPips),
       pipsToTP: Math.round(Math.abs(tp - currentRate) / pips),
-      riskAmount: riskAmount,
-      potentialProfit: riskAmount * riskReward,
+      riskAmount: actualRisk,
+      potentialProfit: potentialProfit,
+      isManualLotSize: useManualLotSize,
       conflictWarning: conflictWarning,
       indicators: {
         trend: prediction.trend,
@@ -577,52 +598,97 @@ const TradeSettings = ({ currencyData }) => {
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
-          <div>
-  
-  
-  
-  {highestConfidencePair?.pair?.symbol === selectedPair && (
-    <p className="text-xs text-emerald-600 mt-1 flex items-center">
-      <Target className="w-3 h-3 mr-1" />
-      Highest confidence pair selected
-    </p>
-  )}
-</div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Currency Pair</label>
+              <select
+                value={selectedPair}
+                onChange={(e) => setSelectedPair(e.target.value)}
+                className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select pair...</option>
+                {currencyData.map(({ pair }) => (
+                  <option key={pair.symbol} value={pair.symbol}>
+                    {pair.name} ({pair.symbol})
+                  </option>
+                ))}
+              </select>
+              {highestConfidencePair?.pair?.symbol === selectedPair && (
+                <p className="text-xs text-emerald-600 mt-1 flex items-center">
+                  <Target className="w-3 h-3 mr-1" />
+                  Highest confidence pair selected
+                </p>
+              )}
+            </div>
 
             <div>
-  <label className="block text-sm font-medium text-slate-700 mb-1">Risk %</label>
-  <input
-    type="number"
-    min="0.5"
-    max="10"
-    step="0.5"
-    value={riskPercent}
-    onChange={(e) => setRiskPercent(Number(e.target.value))}
-    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
-  />
-</div>
-<div>
-  <label className="block text-sm font-medium text-slate-700 mb-1">R:R Ratio</label>
-  <input
-    type="number"
-    min="1"
-    max="5"
-    step="0.5"
-    value={riskReward}
-    onChange={(e) => setRiskReward(Number(e.target.value))}
-    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
-  />
-</div>
-<div>
-  <label className="block text-sm font-medium text-slate-700 mb-1">Balance ($)</label>
-  <input
-    type="number"
-    min="1000"
-    value={accountBalance}
-    onChange={(e) => setAccountBalance(Number(e.target.value))}
-    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
-  />
-</div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Balance ($)</label>
+              <input
+                type="number"
+                min="1000"
+                value={accountBalance}
+                onChange={(e) => setAccountBalance(Number(e.target.value))}
+                className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 mb-2">
+              <input
+                type="checkbox"
+                id="useManualLotSize"
+                checked={useManualLotSize}
+                onChange={(e) => setUseManualLotSize(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <label htmlFor="useManualLotSize" className="text-sm font-medium text-slate-700">
+                Manual Lot Size
+              </label>
+            </div>
+
+            {useManualLotSize ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Lot Size</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.01"
+                  value={manualLotSize}
+                  onChange={(e) => setManualLotSize(Number(e.target.value))}
+                  className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  1.00 = 100,000 units | 0.10 = 10,000 units | 0.01 = 1,000 units (micro lot)
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Risk %</label>
+                  <input
+                    type="number"
+                    min="0.5"
+                    max="10"
+                    step="0.5"
+                    value={riskPercent}
+                    onChange={(e) => setRiskPercent(Number(e.target.value))}
+                    className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">R:R Ratio</label>
+              <input
+                type="number"
+                min="1"
+                max="5"
+                step="0.5"
+                value={riskReward}
+                onChange={(e) => setRiskReward(Number(e.target.value))}
+                className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
           </div>
 
           {selectedData?.prediction && (
@@ -704,9 +770,9 @@ const TradeSettings = ({ currencyData }) => {
                   </div>
                   <div className="bg-white bg-opacity-70 p-2 rounded">
                     <div className="text-slate-600">Lot Size</div>
-                    <div className="font-bold">{tradeSignal.lotSize}</div>
+                    <div className="font-bold">{tradeSignal.lotSize} lots</div>
                     <div className="text-xs text-slate-500">
-                      Risk: ${tradeSignal.riskAmount.toFixed(2)}
+                      {tradeSignal.isManualLotSize ? 'Manual' : 'Calculated'} • Risk: ${tradeSignal.riskAmount.toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -725,8 +791,9 @@ const TradeSettings = ({ currencyData }) => {
                 </div>
                 
                 <div className="bg-white bg-opacity-70 p-2 rounded text-center">
-                  <div className="text-slate-600 text-sm">Confidence</div>
-                  <div className="font-bold text-indigo-600">{tradeSignal.confidence}%</div>
+                  <div className="text-slate-600 text-sm">Profit Potential</div>
+                  <div className="font-bold text-emerald-600">${tradeSignal.potentialProfit.toFixed(2)}</div>
+                  <div className="text-xs text-slate-500">Confidence: {tradeSignal.confidence}%</div>
                 </div>
 
                 {tradeSignal.conflictWarning && (
