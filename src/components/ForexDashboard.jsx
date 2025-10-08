@@ -43,7 +43,6 @@ import {
   Layers
 } from 'lucide-react';
 
-// Utility function for momentum direction
 const getMomentumDirection = (momentum) => {
   if (momentum > 0.001) return { direction: 'Strong Up', color: 'text-emerald-600', icon: TrendingUp };
   if (momentum > 0) return { direction: 'Up', color: 'text-green-500', icon: TrendingUp };
@@ -52,7 +51,6 @@ const getMomentumDirection = (momentum) => {
   return { direction: 'Flat', color: 'text-slate-500', icon: Minus };
 };
 
-// Currency pairs configuration
 const CURRENCY_PAIRS = [
   { symbol: 'XAUUSD', base: 'XAU', quote: 'USD', name: 'Gold/USD', type: 'commodity', pipValue: 0.1, pipDigits: 2 },
   { symbol: 'EURUSD', base: 'EUR', quote: 'USD', name: 'EUR/USD', type: 'major', pipValue: 0.0001, pipDigits: 5 },
@@ -66,7 +64,6 @@ const CURRENCY_PAIRS = [
   { symbol: 'AUDNZD', base: 'AUD', quote: 'NZD', name: 'AUD/NZD', type: 'cross', pipValue: 0.0001, pipDigits: 5 }
 ];
 
-// Simulate real-time forex data with realistic fluctuations
 const generateRealisticRate = (symbol, previousRate) => {
   const baseRates = {
     'XAUUSD': 2000 + Math.random() * 100,
@@ -90,7 +87,6 @@ const generateRealisticRate = (symbol, previousRate) => {
   return baseRates[symbol] || 1;
 };
 
-// Enhanced Linear Regression Analysis
 class LinearRegressionModel {
   constructor() {
     this.slope = 0;
@@ -176,7 +172,6 @@ class LinearRegressionModel {
   }
 }
 
-// Enhanced Forex Predictor with CORRECTED technical indicators
 class ForexPredictor {
   constructor(windowSize = 10) {
     this.windowSize = windowSize;
@@ -218,7 +213,6 @@ class ForexPredictor {
     return slice.reduce((sum, item) => sum + item.price, 0) / period;
   }
 
-  // CORRECTED EMA calculation with proper initialization
   calculateEMA(data, period, symbol) {
     if (data.length === 0) return null;
     
@@ -230,13 +224,11 @@ class ForexPredictor {
     const currentPrice = data[data.length - 1].price;
     
     if (!this.emaValues[symbol][period] || data.length < period) {
-      // Initialize with SMA
       const sma = this.calculateSMA(data.slice(0, Math.min(period, data.length)), Math.min(period, data.length));
       this.emaValues[symbol][period] = sma || currentPrice;
       return this.emaValues[symbol][period];
     }
     
-    // Update EMA
     this.emaValues[symbol][period] = (currentPrice * multiplier) + (this.emaValues[symbol][period] * (1 - multiplier));
     return this.emaValues[symbol][period];
   }
@@ -249,7 +241,6 @@ class ForexPredictor {
     return (current - previous) / previous;
   }
 
-  // CORRECTED ATR calculation with proper True Range
   calculateATR(data, periods = 14) {
     if (data.length < periods + 1) return 0;
     
@@ -258,7 +249,6 @@ class ForexPredictor {
       const current = data[data.length - i];
       const previous = data[data.length - i - 1];
       
-      // Simulate high and low with small variations around the price
       const high = current.price * (1 + Math.random() * 0.001);
       const low = current.price * (1 - Math.random() * 0.001);
       const prevClose = previous.price;
@@ -288,10 +278,9 @@ class ForexPredictor {
     const mean = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
     const variance = returns.reduce((sum, ret) => sum + Math.pow(ret - mean, 2), 0) / returns.length;
     
-    return Math.sqrt(variance * 252); // Annualized volatility
+    return Math.sqrt(variance * 252);
   }
 
-  // CORRECTED RSI calculation with proper smoothing
   calculateRSI(data, periods = 14) {
     if (data.length < periods + 1) return 50;
     
@@ -305,7 +294,6 @@ class ForexPredictor {
     let avgGain = 0;
     let avgLoss = 0;
     
-    // Calculate initial averages
     for (let i = 0; i < recentChanges.length; i++) {
       if (recentChanges[i] > 0) {
         avgGain += recentChanges[i];
@@ -323,7 +311,6 @@ class ForexPredictor {
     return 100 - (100 / (1 + rs));
   }
 
-  // CORRECTED MACD calculation
   calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9, symbol) {
     if (data.length < slowPeriod) {
       return { macd: 0, signal: 0, histogram: 0 };
@@ -338,7 +325,6 @@ class ForexPredictor {
     
     const currentMACD = fastEMA - slowEMA;
     
-    // Calculate signal line (EMA of MACD)
     if (!this.emaValues[symbol + '_macd_signal']) {
       this.emaValues[symbol + '_macd_signal'] = currentMACD;
     } else {
@@ -356,7 +342,6 @@ class ForexPredictor {
     };
   }
 
-  // CORRECTED Bollinger Bands calculation
   calculateBollingerBands(data, period = 20, multiplier = 2) {
     if (data.length < period) {
       return { upper: null, middle: null, lower: null, bandwidth: 0, percentB: 0.5 };
@@ -383,7 +368,6 @@ class ForexPredictor {
     };
   }
 
-  // CORRECTED Stochastic Oscillator
   calculateStochastic(data, kPeriod = 14, dPeriod = 3) {
     if (data.length < kPeriod) {
       return { k: 50, d: 50 };
@@ -392,7 +376,6 @@ class ForexPredictor {
     const recentData = data.slice(-kPeriod);
     const currentPrice = data[data.length - 1].price;
     
-    // Simulate high/low with realistic variations
     const highs = recentData.map(d => d.price * (1 + Math.random() * 0.002));
     const lows = recentData.map(d => d.price * (1 - Math.random() * 0.002));
     
@@ -401,8 +384,7 @@ class ForexPredictor {
     
     const k = ((currentPrice - lowestLow) / (highestHigh - lowestLow)) * 100;
     
-    // Calculate %D as SMA of %K (simplified)
-    const d = k; // In a real implementation, you'd track multiple %K values
+    const d = k;
     
     return { 
       k: Math.max(0, Math.min(100, k)), 
@@ -450,11 +432,9 @@ class ForexPredictor {
       linearTrend = linearModel.getTrendDirection();
     }
 
-    // Enhanced trend analysis
     let trend = 'neutral';
     let trendStrength = 0;
     
-    // SMA trend analysis
     if (sma5 && sma10) {
       if (sma5 > sma10 * 1.002) {
         trend = 'bullish';
@@ -465,7 +445,6 @@ class ForexPredictor {
       }
     }
     
-    // EMA crossover
     if (ema12 && ema26) {
       if (ema12 > ema26) {
         if (trend === 'bullish') trendStrength += 1;
@@ -476,7 +455,6 @@ class ForexPredictor {
       }
     }
     
-    // Momentum confirmation
     if (momentum > 0.001) {
       if (trend === 'bullish') trendStrength += 1;
       else if (trend === 'neutral') trend = 'bullish';
@@ -485,19 +463,15 @@ class ForexPredictor {
       else if (trend === 'neutral') trend = 'bearish';
     }
 
-    // RSI overbought/oversold
     if (rsi > 70 && trend === 'bearish') trendStrength += 0.5;
     if (rsi < 30 && trend === 'bullish') trendStrength += 0.5;
     
-    // MACD signal
     if (macd.macd > macd.signal && trend === 'bullish') trendStrength += 0.5;
     if (macd.macd < macd.signal && trend === 'bearish') trendStrength += 0.5;
     
-    // Stochastic confirmation
     if (stochastic.k < 20 && trend === 'bullish') trendStrength += 0.3;
     if (stochastic.k > 80 && trend === 'bearish') trendStrength += 0.3;
 
-    // Price prediction using multiple methods
     const momentumPrediction = currentPrice * (1 + momentum * 0.3);
     const smaPrediction = sma5 || currentPrice;
     const emaPrediction = ema12 || currentPrice;
@@ -526,7 +500,6 @@ class ForexPredictor {
       );
     }
 
-    // Volatility adjustment
     const volatilityFactor = Math.min(0.02, atr / currentPrice);
     if (trend === 'bullish') {
       finalPrediction += currentPrice * volatilityFactor * 0.5;
@@ -534,17 +507,14 @@ class ForexPredictor {
       finalPrediction -= currentPrice * volatilityFactor * 0.5;
     }
 
-    // Dynamic confidence calculation
     let baseConfidence = Math.min(95, Math.max(20, 
       (data.length / 50) * 100 * (1 - Math.min(volatility * 10, 0.8))
     ));
     
-    // Adjust confidence based on indicator alignment
     if (trendStrength >= 3) baseConfidence += 10;
     else if (trendStrength >= 2) baseConfidence += 5;
     else if (trendStrength <= 0.5) baseConfidence -= 15;
     
-    // Penalize extreme RSI values without trend confirmation
     if ((rsi > 80 || rsi < 20) && trendStrength < 1) {
       baseConfidence -= 10;
     }
@@ -585,7 +555,6 @@ class ForexPredictor {
   }
 }
 
-// CORRECTED Trade Settings Component with fixed risk:reward calculation
 const TradeSettings = ({ currencyData }) => {
   const [riskPercent, setRiskPercent] = useState(2);
   const [riskReward, setRiskReward] = useState(2);
@@ -595,7 +564,6 @@ const TradeSettings = ({ currencyData }) => {
   const [manualLotSize, setManualLotSize] = useState(0.01);
   const [useManualLotSize, setUseManualLotSize] = useState(false);
 
-  // Find highest confidence pair
   const highestConfidencePair = currencyData.reduce((best, current) => {
     if (!current.prediction?.confidence) return best;
     if (!best.prediction?.confidence) return current;
@@ -615,80 +583,46 @@ const TradeSettings = ({ currencyData }) => {
     return price.toFixed(pair.pipDigits);
   };
 
-  const calculatePipValue = (symbol, lotSize) => {
-    const pair = CURRENCY_PAIRS.find(p => p.symbol === symbol);
-    if (!pair) return 10;
-    
-    // Standard lot = 100,000 units
-    const standardLotValue = 100000;
-    const actualLotValue = standardLotValue * lotSize;
-    
-    if (symbol === 'XAUUSD') {
-      return actualLotValue * 0.01; // $1 per 0.01 move per standard lot
-    } else if (symbol.includes('JPY')) {
-      return (actualLotValue * 0.01) / 100; // Adjusted for JPY pairs
-    } else {
-      return actualLotValue * 0.0001; // Standard calculation
-    }
-  };
-
-  const calculateLotSize = (riskAmount, slPips, pipValue) => {
-    if (slPips === 0 || pipValue === 0) return 0.01;
-    const calculatedLotSize = riskAmount / (slPips * pipValue);
-    return Math.min(10, Math.max(0.01, calculatedLotSize));
-  };
-
   const generateTradeSignal = () => {
     const data = currencyData.find(d => d.pair.symbol === selectedPair);
     if (!data?.prediction) return null;
 
     const { prediction, currentRate, pair } = data;
     
-    // Enhanced signal generation with multiple confirmations
     let signal = 'HOLD';
     let signalStrength = 0;
     let conflictWarning = false;
     
     const priceDirection = prediction.predictedPrice > currentRate ? 'bullish' : 'bearish';
     
-    // Check for conflicts between different indicators
     if (prediction.trend !== priceDirection && prediction.trend !== 'neutral') {
       conflictWarning = true;
     }
     
-    // Multi-indicator signal generation
     let bullishSignals = 0;
     let bearishSignals = 0;
     
-    // Trend signals
     if (prediction.trend === 'bullish') bullishSignals++;
     if (prediction.trend === 'bearish') bearishSignals++;
     
-    // Price prediction
     if (prediction.predictedPrice > currentRate * 1.001) bullishSignals++;
     if (prediction.predictedPrice < currentRate * 0.999) bearishSignals++;
     
-    // RSI signals
     if (prediction.rsi < 30) bullishSignals++;
     if (prediction.rsi > 70) bearishSignals++;
     
-    // MACD signals
     if (prediction.macd.macd > prediction.macd.signal && prediction.macd.histogram > 0) bullishSignals++;
     if (prediction.macd.macd < prediction.macd.signal && prediction.macd.histogram < 0) bearishSignals++;
     
-    // Momentum signals
     if (prediction.momentum > 0.001) bullishSignals++;
     if (prediction.momentum < -0.001) bearishSignals++;
     
-    // Stochastic signals
     if (prediction.stochastic.k < 20 && prediction.stochastic.d < 20) bullishSignals++;
     if (prediction.stochastic.k > 80 && prediction.stochastic.d > 80) bearishSignals++;
     
-    // Bollinger Bands signals
     if (prediction.bollinger && prediction.bollinger.percentB < 0.2) bullishSignals++;
     if (prediction.bollinger && prediction.bollinger.percentB > 0.8) bearishSignals++;
     
-    // Determine signal based on consensus
     if (bullishSignals >= 3 && bullishSignals > bearishSignals) {
       signal = 'BUY';
       signalStrength = Math.min(5, bullishSignals);
@@ -700,55 +634,68 @@ const TradeSettings = ({ currencyData }) => {
       signalStrength = 0;
     }
     
-    // Reduce signal strength for conflicts
     if (conflictWarning) {
       signalStrength = Math.max(0, signalStrength - 1);
     }
     
-    // Override signal for low confidence
     if (prediction.confidence < 60) {
       signal = 'HOLD';
       signalStrength = 0;
     }
 
     const isBuy = signal === 'BUY';
-    const pips = pair.symbol.includes('JPY') ? 0.01 : 0.0001;
+    const pipSize = pair.symbol.includes('JPY') ? 0.01 : pair.symbol === 'XAUUSD' ? 0.1 : 0.0001;
     
-    // Use ATR for dynamic stop loss calculation
     const atr = prediction.atr || (prediction.volatility * currentRate);
     const slMultiplier = Math.max(1.5, Math.min(3.5, 2 + (prediction.volatility * 5)));
     const tpMultiplier = riskReward;
     
     const slDistance = atr * slMultiplier;
     const tpDistance = slDistance * tpMultiplier;
-    
+        
     const sl = isBuy ? currentRate - slDistance : currentRate + slDistance;
     const tp = isBuy ? currentRate + tpDistance : currentRate - tpDistance;
     
     const riskAmount = accountBalance * (riskPercent / 100);
-    const slPips = Math.abs(currentRate - sl) / pips;
+    const slPips = Math.abs(currentRate - sl) / pipSize;
     
-    // Enhanced pip value calculation
-    let pipValue = 1;
-    if (pair.symbol.includes('JPY')) {
-      pipValue = (100000 / currentRate); // For JPY pairs
-    } else if (pair.symbol === 'XAUUSD') {
-      pipValue = 10; // Gold typically $10 per pip for 1 lot
+    // Calculate pip value per standard lot in USD (MT5 format)
+    let pipValuePerStandardLot = 10; // Default for most pairs
+    
+    if (pair.symbol === 'XAUUSD') {
+      // Gold: $10 per pip (0.10 move) per standard lot
+      pipValuePerStandardLot = 10;
+    } else if (pair.symbol.includes('JPY')) {
+      // JPY pairs: approximately $10 per pip (0.01 move) per standard lot
+      // More precise: (0.01 / current_rate) * 100,000
+      pipValuePerStandardLot = (0.01 / currentRate) * 100000;
+    } else if (pair.quote === 'USD') {
+      // Direct quote (XXX/USD): $10 per pip per standard lot
+      pipValuePerStandardLot = 10;
     } else {
-      pipValue = 10; // Standard for major pairs
+      // Cross pairs: approximation
+      pipValuePerStandardLot = 10;
     }
     
-    // Calculate lot size
+    // Calculate lot size based on risk management
     let lotSize;
     if (useManualLotSize) {
       lotSize = manualLotSize;
     } else {
-      lotSize = calculateLotSize(riskAmount, slPips, pipValue);
+      // Lot Size = Risk Amount / (SL in Pips × Pip Value per Standard Lot)
+      lotSize = riskAmount / (slPips * pipValuePerStandardLot);
+      // Round to 2 decimal places
       lotSize = Math.round(lotSize * 100) / 100;
+      // Ensure minimum of 0.01 (micro lot) and maximum of 100 lots
+      lotSize = Math.min(100, Math.max(0.01, lotSize));
     }
 
-    const actualRisk = slPips * pipValue * lotSize;
+    // Calculate actual risk and profit based on final lot size
+    const actualRisk = slPips * pipValuePerStandardLot * lotSize;
     const potentialProfit = actualRisk * riskReward;
+    
+    // Check if risk exceeds the intended risk amount
+    const riskExceedsLimit = !useManualLotSize && actualRisk > (accountBalance * riskPercent / 100) * 1.1;
 
     return {
       pair: selectedPair,
@@ -766,9 +713,11 @@ const TradeSettings = ({ currencyData }) => {
       lotSize: Number(lotSize.toFixed(2)),
       confidence: prediction.confidence,
       pipsToSL: Math.round(slPips),
-      pipsToTP: Math.round(Math.abs(tp - currentRate) / pips),
+      pipsToTP: Math.round(Math.abs(tp - currentRate) / pipSize),
       riskAmount: actualRisk,
       potentialProfit: potentialProfit,
+      riskExceedsLimit: riskExceedsLimit,
+      pipValuePerStandardLot: pipValuePerStandardLot,
       isManualLotSize: useManualLotSize,
       conflictWarning: conflictWarning,
       indicators: {
@@ -1001,6 +950,20 @@ const TradeSettings = ({ currencyData }) => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-800">Trade Signal</h3>
               <div className="flex items-center space-x-3">
+                {tradeSignal.conflictWarning && (
+                  <span className="flex items-center text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Conflict
+                  </span>
+                )}
+                <span className={`px-3 py-1 rounded-full text-sm font-bold ${tradeSignal.signal === 'BUY' ? 'bg-emerald-600 text-white' : tradeSignal.signal === 'SELL' ? 'bg-red-600 text-white' : 'bg-slate-500 text-white'}`}>
+                  {tradeSignal.signal}
+                </span>
+              </div>
+            </div>
+            
+            {tradeSignal.signal !== 'HOLD' ? (
+              <div className="space-y-4">
                 {tradeSignal.riskExceedsLimit && (
                   <div className="bg-red-50 border border-red-200 p-3 rounded text-xs text-red-800 mb-3">
                     <div className="flex items-start">
@@ -1016,20 +979,6 @@ const TradeSettings = ({ currencyData }) => {
                   </div>
                 )}
 
-                {tradeSignal.conflictWarning && (
-                  <span className="flex items-center text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full">
-                    <AlertTriangle className="w-3 h-3 mr-1" />
-                    Conflict
-                  </span>
-                )}
-                <span className={`px-3 py-1 rounded-full text-sm font-bold ${tradeSignal.signal === 'BUY' ? 'bg-emerald-600 text-white' : tradeSignal.signal === 'SELL' ? 'bg-red-600 text-white' : 'bg-slate-500 text-white'}`}>
-                  {tradeSignal.signal}
-                </span>
-              </div>
-            </div>
-            
-            {tradeSignal.signal !== 'HOLD' ? (
-              <div className="space-y-4">
                 {/* Signal Analysis */}
                 <div className="grid grid-cols-3 gap-3 text-sm">
                   <div className="bg-emerald-50 p-3 rounded">
@@ -1201,6 +1150,7 @@ const TradeSettings = ({ currencyData }) => {
     </div>
   );
 };
+
 
 // Main Forex Dashboard Component
 const ForexDashboard = () => {
