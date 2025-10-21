@@ -599,48 +599,128 @@ const TradeSettings = ({ currencyData }) => {
       conflictWarning = true;
     }
     
-    let bullishSignals = 0;
-    let bearishSignals = 0;
+    let bullishScore = 0;
+    let bearishScore = 0;
+    let totalIndicators = 0;
     
-    if (prediction.trend === 'bullish') bullishSignals++;
-    if (prediction.trend === 'bearish') bearishSignals++;
-    
-    if (prediction.predictedPrice > currentRate * 1.001) bullishSignals++;
-    if (prediction.predictedPrice < currentRate * 0.999) bearishSignals++;
-    
-    if (prediction.rsi < 30) bullishSignals++;
-    if (prediction.rsi > 70) bearishSignals++;
-    
-    if (prediction.macd.macd > prediction.macd.signal && prediction.macd.histogram > 0) bullishSignals++;
-    if (prediction.macd.macd < prediction.macd.signal && prediction.macd.histogram < 0) bearishSignals++;
-    
-    if (prediction.momentum > 0.001) bullishSignals++;
-    if (prediction.momentum < -0.001) bearishSignals++;
-    
-    if (prediction.stochastic.k < 20 && prediction.stochastic.d < 20) bullishSignals++;
-    if (prediction.stochastic.k > 80 && prediction.stochastic.d > 80) bearishSignals++;
-    
-    if (prediction.bollinger && prediction.bollinger.percentB < 0.2) bullishSignals++;
-    if (prediction.bollinger && prediction.bollinger.percentB > 0.8) bearishSignals++;
-    
-    if (bullishSignals >= 3 && bullishSignals > bearishSignals) {
-      signal = 'BUY';
-      signalStrength = Math.min(5, bullishSignals);
-    } else if (bearishSignals >= 3 && bearishSignals > bullishSignals) {
-      signal = 'SELL';
-      signalStrength = Math.min(5, bearishSignals);
-    } else {
-      signal = 'HOLD';
-      signalStrength = 0;
+    const priceChange = (prediction.predictedPrice - currentRate) / currentRate;
+    if (Math.abs(priceChange) > 0.001) {
+      totalIndicators++;
+      if (priceChange > 0) {
+        bullishScore += 2.5;
+      } else {
+        bearishScore += 2.5;
+      }
     }
     
-    if (conflictWarning) {
-      signalStrength = Math.max(0, signalStrength - 1);
+    if (prediction.trend !== 'neutral') {
+      totalIndicators++;
+      if (prediction.trend === 'bullish') {
+        bullishScore += 2.0;
+      } else {
+        bearishScore += 2.0;
+      }
     }
     
-    if (prediction.confidence < 60) {
+    if (prediction.rsi !== 50) {
+      totalIndicators++;
+      if (prediction.rsi < 30) {
+        bullishScore += 2.0;
+      } else if (prediction.rsi > 70) {
+        bearishScore += 2.0;
+      } else if (prediction.rsi < 40) {
+        bullishScore += 0.5;
+      } else if (prediction.rsi > 60) {
+        bearishScore += 0.5;
+      }
+    }
+    
+    if (prediction.macd.histogram !== 0) {
+      totalIndicators++;
+      if (prediction.macd.macd > prediction.macd.signal && prediction.macd.histogram > 0) {
+        bullishScore += 1.5;
+      } else if (prediction.macd.macd < prediction.macd.signal && prediction.macd.histogram < 0) {
+        bearishScore += 1.5;
+      }
+    }
+    
+    if (prediction.momentum !== 0) {
+      totalIndicators++;
+      if (prediction.momentum > 0.002) {
+        bullishScore += 1.5;
+      } else if (prediction.momentum < -0.002) {
+        bearishScore += 1.5;
+      } else if (prediction.momentum > 0) {
+        bullishScore += 0.5;
+      } else if (prediction.momentum < 0) {
+        bearishScore += 0.5;
+      }
+    }
+    
+    if (prediction.stochastic.k !== 50) {
+      totalIndicators++;
+      if (prediction.stochastic.k < 20) {
+        bullishScore += 1.0;
+      } else if (prediction.stochastic.k > 80) {
+        bearishScore += 1.0;
+      }
+    }
+    
+    if (prediction.bollinger && prediction.bollinger.percentB !== 0.5) {
+      totalIndicators++;
+      if (prediction.bollinger.percentB < 0.2) {
+        bullishScore += 1.0;
+      } else if (prediction.bollinger.percentB > 0.8) {
+        bearishScore += 1.0;
+      }
+    }
+    
+    if (prediction.ema12 && prediction.ema26) {
+      totalIndicators++;
+      const emaDiff = (prediction.ema12 - prediction.ema26) / prediction.ema26;
+      if (emaDiff > 0.001) {
+        bullishScore += 1.0;
+      } else if (emaDiff < -0.001) {
+        bearishScore += 1.0;
+      }
+    }
+    
+    const totalScore = bullishScore + bearishScore;
+    let tradeConfidence = 0;
+    
+    if (totalScore > 0 && totalIndicators >= 5) {
+      const maxPossibleScore = totalIndicators * 2.5;
+      
+      if (bullishScore > bearishScore) {
+        const dominance = (bullishScore - bearishScore) / totalScore;
+        const scoreRatio = bullishScore / maxPossibleScore;
+        tradeConfidence = Math.round(dominance * scoreRatio * 100);
+        
+        if (dominance > 0.6 && scoreRatio > 0.5 && tradeConfidence >= 70) {
+          signal = 'BUY';
+          signalStrength = Math.min(5, Math.round((bullishScore / 2)));
+        }
+      } else if (bearishScore > bullishScore) {
+        const dominance = (bearishScore - bullishScore) / totalScore;
+        const scoreRatio = bearishScore / maxPossibleScore;
+        tradeConfidence = Math.round(dominance * scoreRatio * 100);
+        
+        if (dominance > 0.6 && scoreRatio > 0.5 && tradeConfidence >= 70) {
+          signal = 'SELL';
+          signalStrength = Math.min(5, Math.round((bearishScore / 2)));
+        }
+      }
+    }
+    
+    if (conflictWarning && tradeConfidence > 0) {
+      tradeConfidence = Math.max(50, tradeConfidence - 20);
+      signalStrength = Math.max(1, signalStrength - 1);
+    }
+    
+    if (tradeConfidence < 70) {
       signal = 'HOLD';
       signalStrength = 0;
+      tradeConfidence = Math.min(tradeConfidence, 65);
     }
 
     const isBuy = signal === 'BUY';
@@ -659,42 +739,30 @@ const TradeSettings = ({ currencyData }) => {
     const riskAmount = accountBalance * (riskPercent / 100);
     const slPips = Math.abs(currentRate - sl) / pipSize;
     
-    // Calculate pip value per standard lot in USD (MT5 format)
-    let pipValuePerStandardLot = 10; // Default for most pairs
+    let pipValuePerStandardLot = 10;
     
     if (pair.symbol === 'XAUUSD') {
-      // Gold: $10 per pip (0.10 move) per standard lot
       pipValuePerStandardLot = 10;
     } else if (pair.symbol.includes('JPY')) {
-      // JPY pairs: approximately $10 per pip (0.01 move) per standard lot
-      // More precise: (0.01 / current_rate) * 100,000
       pipValuePerStandardLot = (0.01 / currentRate) * 100000;
     } else if (pair.quote === 'USD') {
-      // Direct quote (XXX/USD): $10 per pip per standard lot
       pipValuePerStandardLot = 10;
     } else {
-      // Cross pairs: approximation
       pipValuePerStandardLot = 10;
     }
     
-    // Calculate lot size based on risk management
     let lotSize;
     if (useManualLotSize) {
       lotSize = manualLotSize;
     } else {
-      // Lot Size = Risk Amount / (SL in Pips × Pip Value per Standard Lot)
       lotSize = riskAmount / (slPips * pipValuePerStandardLot);
-      // Round to 2 decimal places
       lotSize = Math.round(lotSize * 100) / 100;
-      // Ensure minimum of 0.01 (micro lot) and maximum of 100 lots
       lotSize = Math.min(100, Math.max(0.01, lotSize));
     }
 
-    // Calculate actual risk and profit based on final lot size
     const actualRisk = slPips * pipValuePerStandardLot * lotSize;
     const potentialProfit = actualRisk * riskReward;
     
-    // Check if risk exceeds the intended risk amount
     const riskExceedsLimit = !useManualLotSize && actualRisk > (accountBalance * riskPercent / 100) * 1.1;
 
     return {
@@ -702,8 +770,9 @@ const TradeSettings = ({ currencyData }) => {
       pairName: pair.name,
       signal: signal,
       signalStrength: Math.min(5, signalStrength),
-      bullishSignals: bullishSignals,
-      bearishSignals: bearishSignals,
+      bullishScore: Math.round(bullishScore * 10) / 10,
+      bearishScore: Math.round(bearishScore * 10) / 10,
+      totalIndicators: totalIndicators,
       entry: currentRate,
       predictedPrice: prediction.predictedPrice,
       priceChange: prediction.predictedPrice - currentRate,
@@ -711,7 +780,7 @@ const TradeSettings = ({ currencyData }) => {
       sl: sl,
       tp: tp,
       lotSize: Number(lotSize.toFixed(2)),
-      confidence: prediction.confidence,
+      confidence: tradeConfidence,
       pipsToSL: Math.round(slPips),
       pipsToTP: Math.round(Math.abs(tp - currentRate) / pipSize),
       riskAmount: actualRisk,
@@ -759,7 +828,6 @@ const TradeSettings = ({ currencyData }) => {
       </div>
 
       <div className="space-y-6">
-        {/* Enhanced Trade Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-gradient-to-br from-indigo-50 to-blue-100 border border-indigo-200 rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
@@ -964,8 +1032,17 @@ const TradeSettings = ({ currencyData }) => {
             
             {tradeSignal.signal !== 'HOLD' ? (
               <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 p-3 rounded text-sm">
+                  <div className="font-semibold text-blue-800 mb-1">
+                    {tradeSignal.confidence}% Confidence for {tradeSignal.signal} Signal
+                  </div>
+                  <div className="text-blue-700 text-xs">
+                    Based on {tradeSignal.totalIndicators} technical indicators with {tradeSignal.signal === 'BUY' ? 'bullish' : 'bearish'} dominance
+                  </div>
+                </div>
+
                 {tradeSignal.riskExceedsLimit && (
-                  <div className="bg-red-50 border border-red-200 p-3 rounded text-xs text-red-800 mb-3">
+                  <div className="bg-red-50 border border-red-200 p-3 rounded text-xs text-red-800">
                     <div className="flex items-start">
                       <AlertCircle className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
                       <div>
@@ -979,15 +1056,14 @@ const TradeSettings = ({ currencyData }) => {
                   </div>
                 )}
 
-                {/* Signal Analysis */}
                 <div className="grid grid-cols-3 gap-3 text-sm">
                   <div className="bg-emerald-50 p-3 rounded">
-                    <div className="text-emerald-700 text-xs mb-1">Bullish Signals</div>
-                    <div className="font-bold text-lg text-emerald-800">{tradeSignal.bullishSignals}</div>
+                    <div className="text-emerald-700 text-xs mb-1">Bullish Score</div>
+                    <div className="font-bold text-lg text-emerald-800">{tradeSignal.bullishScore}</div>
                   </div>
                   <div className="bg-red-50 p-3 rounded">
-                    <div className="text-red-700 text-xs mb-1">Bearish Signals</div>
-                    <div className="font-bold text-lg text-red-800">{tradeSignal.bearishSignals}</div>
+                    <div className="text-red-700 text-xs mb-1">Bearish Score</div>
+                    <div className="font-bold text-lg text-red-800">{tradeSignal.bearishScore}</div>
                   </div>
                   <div className="bg-blue-50 p-3 rounded">
                     <div className="text-blue-700 text-xs mb-1">Strength</div>
@@ -995,7 +1071,6 @@ const TradeSettings = ({ currencyData }) => {
                   </div>
                 </div>
 
-                {/* Trade Info */}
                 <div className="grid grid-cols-3 gap-3 text-sm">
                   <div className="bg-white bg-opacity-70 p-3 rounded">
                     <div className="text-slate-600 text-xs mb-1">Entry Price</div>
@@ -1015,7 +1090,7 @@ const TradeSettings = ({ currencyData }) => {
                     <div className="text-slate-600 text-xs mb-1">Confidence</div>
                     <div className="font-bold text-lg">{tradeSignal.confidence}%</div>
                     <div className="text-xs text-slate-500">
-                      Multi-indicator
+                      {tradeSignal.signal} signal
                     </div>
                   </div>
                 </div>
@@ -1039,7 +1114,6 @@ const TradeSettings = ({ currencyData }) => {
                   </div>
                 </div>
                 
-                {/* MT5 Copy-Paste Section */}
                 <div className="bg-slate-800 rounded-lg p-4 text-white">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-medium text-slate-300">MT5 Order Details</div>
@@ -1062,7 +1136,7 @@ const TradeSettings = ({ currencyData }) => {
                       <div>
                         <p className="font-semibold">Warning: Conflicting Signals</p>
                         <p className="mt-1">
-                          Some indicators suggest different directions. Signal strength: {tradeSignal.signalStrength}/5. 
+                          Some indicators suggest different directions. Confidence reduced. Signal strength: {tradeSignal.signalStrength}/5. 
                           Consider waiting for clearer consensus or using smaller position size.
                         </p>
                       </div>
@@ -1074,17 +1148,16 @@ const TradeSettings = ({ currencyData }) => {
               <div className="text-center py-6">
                 <div className="text-slate-600 mb-2 font-medium">No clear trading signal</div>
                 <div className="text-sm text-slate-500">
-                  {tradeSignal.confidence < 60 ? 'Confidence level too low for safe trading' : 'Conflicting indicators - wait for better setup'}
+                  {tradeSignal.confidence < 70 ? 'Confidence level too low for safe trading' : 'Insufficient indicator consensus - wait for better setup'}
                 </div>
                 <div className="mt-3 text-xs text-slate-400">
-                  Current confidence: {tradeSignal.confidence}% • Required: 60%+ • Bullish: {tradeSignal.bullishSignals} • Bearish: {tradeSignal.bearishSignals}
+                  Current confidence: {tradeSignal.confidence}% • Required: 70%+ • Bullish: {tradeSignal.bullishScore} • Bearish: {tradeSignal.bearishScore}
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Advanced Settings Panel */}
         {showAdvanced && (
           <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
             <h3 className="font-semibold text-slate-700 mb-3 flex items-center">
