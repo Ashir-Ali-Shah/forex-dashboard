@@ -52,17 +52,36 @@ const getMomentumDirection = (momentum) => {
 };
 
 const CURRENCY_PAIRS = [
-  { symbol: 'XAUUSD', base: 'XAU', quote: 'USD', name: 'Gold/USD', type: 'commodity', pipValue: 0.1, pipDigits: 2 },
-  { symbol: 'EURUSD', base: 'EUR', quote: 'USD', name: 'EUR/USD', type: 'major', pipValue: 0.0001, pipDigits: 5 },
-  { symbol: 'GBPUSD', base: 'GBP', quote: 'USD', name: 'GBP/USD', type: 'major', pipValue: 0.0001, pipDigits: 5 },
-  { symbol: 'USDCAD', base: 'USD', quote: 'CAD', name: 'USD/CAD', type: 'major', pipValue: 0.0001, pipDigits: 5 },
-  { symbol: 'USDCHF', base: 'USD', quote: 'CHF', name: 'USD/CHF', type: 'major', pipValue: 0.0001, pipDigits: 5 },
-  { symbol: 'USDJPY', base: 'USD', quote: 'JPY', name: 'USD/JPY', type: 'major', pipValue: 0.01, pipDigits: 3 },
-  { symbol: 'AUDCAD', base: 'AUD', quote: 'CAD', name: 'AUD/CAD', type: 'cross', pipValue: 0.0001, pipDigits: 5 },
-  { symbol: 'AUDCHF', base: 'AUD', quote: 'CHF', name: 'AUD/CHF', type: 'cross', pipValue: 0.0001, pipDigits: 5 },
-  { symbol: 'AUDJPY', base: 'AUD', quote: 'JPY', name: 'AUD/JPY', type: 'cross', pipValue: 0.01, pipDigits: 3 },
-  { symbol: 'AUDNZD', base: 'AUD', quote: 'NZD', name: 'AUD/NZD', type: 'cross', pipValue: 0.0001, pipDigits: 5 }
+  { symbol: 'XAUUSD', base: 'XAU', quote: 'USD', name: 'Gold/USD', type: 'commodity', pipValue: 0.1, pipDigits: 2, apiSymbol: 'XAU_USD' },
+  { symbol: 'EURUSD', base: 'EUR', quote: 'USD', name: 'EUR/USD', type: 'major', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'EUR_USD' },
+  { symbol: 'GBPUSD', base: 'GBP', quote: 'USD', name: 'GBP/USD', type: 'major', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'GBP_USD' },
+  { symbol: 'USDCAD', base: 'USD', quote: 'CAD', name: 'USD/CAD', type: 'major', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'USD_CAD' },
+  { symbol: 'USDCHF', base: 'USD', quote: 'CHF', name: 'USD/CHF', type: 'major', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'USD_CHF' },
+  { symbol: 'USDJPY', base: 'USD', quote: 'JPY', name: 'USD/JPY', type: 'major', pipValue: 0.01, pipDigits: 3, apiSymbol: 'USD_JPY' },
+  { symbol: 'AUDCAD', base: 'AUD', quote: 'CAD', name: 'AUD/CAD', type: 'cross', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'AUD_CAD' },
+  { symbol: 'AUDCHF', base: 'AUD', quote: 'CHF', name: 'AUD/CHF', type: 'cross', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'AUD_CHF' },
+  { symbol: 'AUDJPY', base: 'AUD', quote: 'JPY', name: 'AUD/JPY', type: 'cross', pipValue: 0.01, pipDigits: 3, apiSymbol: 'AUD_JPY' },
+  { symbol: 'AUDNZD', base: 'AUD', quote: 'NZD', name: 'AUD/NZD', type: 'cross', pipValue: 0.0001, pipDigits: 5, apiSymbol: 'AUD_NZD' }
 ];
+
+// Fetch real forex data from API
+const fetchForexData = async (symbol) => {
+  try {
+    // Using Frankfurter API for real forex rates (free, no API key needed)
+    const response = await fetch(`https://api.frankfurter.app/latest?from=${symbol.base}&to=${symbol.quote}`);
+    const data = await response.json();
+    
+    if (data.rates && data.rates[symbol.quote]) {
+      return data.rates[symbol.quote];
+    }
+    
+    // Fallback to simulated data if API fails
+    return generateRealisticRate(symbol.symbol);
+  } catch (error) {
+    console.error('API fetch error:', error);
+    return generateRealisticRate(symbol.symbol);
+  }
+};
 
 const generateRealisticRate = (symbol, previousRate) => {
   const baseRates = {
@@ -603,124 +622,144 @@ const TradeSettings = ({ currencyData }) => {
     let bearishScore = 0;
     let totalIndicators = 0;
     
+    // Price prediction direction (weighted heavily)
     const priceChange = (prediction.predictedPrice - currentRate) / currentRate;
-    if (Math.abs(priceChange) > 0.001) {
+    if (Math.abs(priceChange) > 0.0005) {
       totalIndicators++;
       if (priceChange > 0) {
+        bullishScore += 3.0;
+      } else {
+        bearishScore += 3.0;
+      }
+    }
+    
+    // Trend analysis
+    if (prediction.trend !== 'neutral') {
+      totalIndicators++;
+      if (prediction.trend === 'bullish') {
         bullishScore += 2.5;
       } else {
         bearishScore += 2.5;
       }
     }
     
-    if (prediction.trend !== 'neutral') {
-      totalIndicators++;
-      if (prediction.trend === 'bullish') {
-        bullishScore += 2.0;
-      } else {
-        bearishScore += 2.0;
-      }
-    }
-    
+    // RSI
     if (prediction.rsi !== 50) {
       totalIndicators++;
       if (prediction.rsi < 30) {
-        bullishScore += 2.0;
+        bullishScore += 2.5;
       } else if (prediction.rsi > 70) {
-        bearishScore += 2.0;
+        bearishScore += 2.5;
       } else if (prediction.rsi < 40) {
-        bullishScore += 0.5;
+        bullishScore += 1.0;
       } else if (prediction.rsi > 60) {
-        bearishScore += 0.5;
+        bearishScore += 1.0;
       }
     }
     
+    // MACD
     if (prediction.macd.histogram !== 0) {
       totalIndicators++;
-      if (prediction.macd.macd > prediction.macd.signal && prediction.macd.histogram > 0) {
-        bullishScore += 1.5;
-      } else if (prediction.macd.macd < prediction.macd.signal && prediction.macd.histogram < 0) {
-        bearishScore += 1.5;
+      if (prediction.macd.macd > prediction.macd.signal) {
+        bullishScore += 2.0;
+      } else if (prediction.macd.macd < prediction.macd.signal) {
+        bearishScore += 2.0;
       }
     }
     
+    // Momentum
     if (prediction.momentum !== 0) {
       totalIndicators++;
-      if (prediction.momentum > 0.002) {
-        bullishScore += 1.5;
-      } else if (prediction.momentum < -0.002) {
-        bearishScore += 1.5;
+      if (prediction.momentum > 0.001) {
+        bullishScore += 2.0;
+      } else if (prediction.momentum < -0.001) {
+        bearishScore += 2.0;
       } else if (prediction.momentum > 0) {
-        bullishScore += 0.5;
+        bullishScore += 0.8;
       } else if (prediction.momentum < 0) {
-        bearishScore += 0.5;
+        bearishScore += 0.8;
       }
     }
     
+    // Stochastic
     if (prediction.stochastic.k !== 50) {
       totalIndicators++;
       if (prediction.stochastic.k < 20) {
-        bullishScore += 1.0;
+        bullishScore += 1.5;
       } else if (prediction.stochastic.k > 80) {
-        bearishScore += 1.0;
+        bearishScore += 1.5;
       }
     }
     
+    // Bollinger Bands
     if (prediction.bollinger && prediction.bollinger.percentB !== 0.5) {
       totalIndicators++;
       if (prediction.bollinger.percentB < 0.2) {
-        bullishScore += 1.0;
+        bullishScore += 1.5;
       } else if (prediction.bollinger.percentB > 0.8) {
-        bearishScore += 1.0;
+        bearishScore += 1.5;
       }
     }
     
+    // EMA Cross
     if (prediction.ema12 && prediction.ema26) {
       totalIndicators++;
       const emaDiff = (prediction.ema12 - prediction.ema26) / prediction.ema26;
       if (emaDiff > 0.001) {
-        bullishScore += 1.0;
+        bullishScore += 1.5;
       } else if (emaDiff < -0.001) {
-        bearishScore += 1.0;
+        bearishScore += 1.5;
       }
     }
     
+    // Calculate signal and confidence
     const totalScore = bullishScore + bearishScore;
     let tradeConfidence = 0;
     
-    if (totalScore > 0 && totalIndicators >= 5) {
-      const maxPossibleScore = totalIndicators * 2.5;
-      
+    if (totalScore > 0 && totalIndicators >= 4) {
       if (bullishScore > bearishScore) {
         const dominance = (bullishScore - bearishScore) / totalScore;
-        const scoreRatio = bullishScore / maxPossibleScore;
-        tradeConfidence = Math.round(dominance * scoreRatio * 100);
+        const agreementRatio = bullishScore / (bullishScore + bearishScore);
         
-        if (dominance > 0.6 && scoreRatio > 0.5 && tradeConfidence >= 70) {
+        // Calculate confidence based on agreement
+        tradeConfidence = Math.round(agreementRatio * 100);
+        
+        // Determine signal strength
+        if (dominance > 0.5 && tradeConfidence >= 60) {
           signal = 'BUY';
-          signalStrength = Math.min(5, Math.round((bullishScore / 2)));
+          signalStrength = Math.min(5, Math.round((bullishScore / 2.5)));
+        } else if (dominance > 0.3 && tradeConfidence >= 55) {
+          signal = 'BUY';
+          signalStrength = Math.min(5, Math.round((bullishScore / 3)));
         }
       } else if (bearishScore > bullishScore) {
         const dominance = (bearishScore - bullishScore) / totalScore;
-        const scoreRatio = bearishScore / maxPossibleScore;
-        tradeConfidence = Math.round(dominance * scoreRatio * 100);
+        const agreementRatio = bearishScore / (bullishScore + bearishScore);
         
-        if (dominance > 0.6 && scoreRatio > 0.5 && tradeConfidence >= 70) {
+        // Calculate confidence based on agreement
+        tradeConfidence = Math.round(agreementRatio * 100);
+        
+        // Determine signal strength
+        if (dominance > 0.5 && tradeConfidence >= 60) {
           signal = 'SELL';
-          signalStrength = Math.min(5, Math.round((bearishScore / 2)));
+          signalStrength = Math.min(5, Math.round((bearishScore / 2.5)));
+        } else if (dominance > 0.3 && tradeConfidence >= 55) {
+          signal = 'SELL';
+          signalStrength = Math.min(5, Math.round((bearishScore / 3)));
         }
       }
     }
     
-    if (conflictWarning && tradeConfidence > 0) {
-      tradeConfidence = Math.max(50, tradeConfidence - 20);
+    // Adjust for conflicts
+    if (conflictWarning && signal !== 'HOLD') {
+      tradeConfidence = Math.max(50, tradeConfidence - 10);
       signalStrength = Math.max(1, signalStrength - 1);
     }
     
-    if (tradeConfidence < 70) {
+    // If confidence is still too low, downgrade to HOLD
+    if (tradeConfidence < 55 && signal !== 'HOLD') {
       signal = 'HOLD';
       signalStrength = 0;
-      tradeConfidence = Math.min(tradeConfidence, 65);
     }
 
     const isBuy = signal === 'BUY';
@@ -1136,7 +1175,7 @@ const TradeSettings = ({ currencyData }) => {
                       <div>
                         <p className="font-semibold">Warning: Conflicting Signals</p>
                         <p className="mt-1">
-                          Some indicators suggest different directions. Confidence reduced. Signal strength: {tradeSignal.signalStrength}/5. 
+                          Some indicators suggest different directions. Confidence adjusted. Signal strength: {tradeSignal.signalStrength}/5. 
                           Consider waiting for clearer consensus or using smaller position size.
                         </p>
                       </div>
@@ -1148,10 +1187,10 @@ const TradeSettings = ({ currencyData }) => {
               <div className="text-center py-6">
                 <div className="text-slate-600 mb-2 font-medium">No clear trading signal</div>
                 <div className="text-sm text-slate-500">
-                  {tradeSignal.confidence < 70 ? 'Confidence level too low for safe trading' : 'Insufficient indicator consensus - wait for better setup'}
+                  {tradeSignal.confidence < 55 ? 'Confidence level too low for safe trading' : 'Insufficient indicator consensus - wait for better setup'}
                 </div>
                 <div className="mt-3 text-xs text-slate-400">
-                  Current confidence: {tradeSignal.confidence}% • Required: 70%+ • Bullish: {tradeSignal.bullishScore} • Bearish: {tradeSignal.bearishScore}
+                  Current confidence: {tradeSignal.confidence}% • Required: 55%+ • Bullish: {tradeSignal.bullishScore} • Bearish: {tradeSignal.bearishScore}
                 </div>
               </div>
             )}
