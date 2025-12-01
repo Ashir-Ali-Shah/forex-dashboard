@@ -8,8 +8,6 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  RadialBarChart,
-  RadialBar,
   PieChart,
   Pie,
   Cell,
@@ -20,17 +18,17 @@ import {
   TrendingUp, 
   TrendingDown,
   PieChart as PieChartIcon, 
-  Activity, 
   BarChart3, 
   Target,
   DollarSign,
   Percent,
   Settings,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Activity
 } from 'lucide-react';
 
-// Currency pairs configuration
+// --- Configuration ---
 const CURRENCY_PAIRS = [
   { symbol: 'XAUUSD', base: 'XAU', quote: 'USD', name: 'Gold/USD', type: 'commodity' },
   { symbol: 'EURUSD', base: 'EUR', quote: 'USD', name: 'EUR/USD', type: 'major' },
@@ -44,79 +42,97 @@ const CURRENCY_PAIRS = [
   { symbol: 'AUDNZD', base: 'AUD', quote: 'NZD', name: 'AUD/NZD', type: 'cross' }
 ];
 
-// Real-time forex data fetcher with fallback data
-const fetchForexData = async () => {
-  const fallbackRates = {
-    EUR: 0.85, GBP: 0.73, CAD: 1.35, CHF: 0.92, JPY: 150.0,
-    AUD: 1.52, NZD: 1.65, XAU: 0.0005
-  };
-  
+// --- Real Data Fetching Logic ---
+
+const fetchRealForexData = async (pair) => {
   try {
-    const response = await fetch(`https://api.exchangerate-api.com/v4/latest/USD`);
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch forex data');
+    // 1. Gold Specific Logic
+    if (pair.base === 'XAU') {
+      try {
+        const response = await fetch('https://api.metals.live/v1/spot/gold');
+        const data = await response.json();
+        if (data && data[0]?.price) return parseFloat(data[0].price);
+      } catch (err) {}
+      
+      try {
+        const response = await fetch('https://data-asg.goldprice.org/dbXRates/USD');
+        const data = await response.json();
+        if (data?.items?.[0]?.xauPrice) return parseFloat(data.items[0].xauPrice);
+      } catch (err) {}
+      
+      return null;
     }
     
-    const data = await response.json();
-    return data;
+    // 2. Forex Logic (Cascade)
+    const apis = [
+      async () => {
+        const response = await fetch(`https://api.frankfurter.app/latest?from=${pair.base}&to=${pair.quote}`);
+        const data = await response.json();
+        return data.rates?.[pair.quote];
+      },
+      async () => {
+        const response = await fetch(`https://open.er-api.com/v6/latest/${pair.base}`);
+        const data = await response.json();
+        return data.rates?.[pair.quote];
+      }
+    ];
+    
+    for (const apiFn of apis) {
+      try {
+        const rate = await apiFn();
+        if (rate && !isNaN(rate)) {
+          return parseFloat(rate);
+        }
+      } catch (err) {
+        continue;
+      }
+    }
+    return null;
   } catch (error) {
-    console.log('Using fallback forex data');
-    return { rates: fallbackRates };
+    return null;
   }
 };
 
-// Calculate currency pair rates from base rates
-const calculatePairRate = (baseRates, baseCurrency, quoteCurrency) => {
-  if (baseCurrency === 'USD') {
-    return baseRates[quoteCurrency] || 1;
-  } else if (quoteCurrency === 'USD') {
-    return 1 / (baseRates[baseCurrency] || 1);
-  } else {
-    const baseToUSD = 1 / (baseRates[baseCurrency] || 1);
-    const quoteToUSD = 1 / (baseRates[quoteCurrency] || 1);
-    return baseToUSD / quoteToUSD;
-  }
-};
-
-// Generate realistic historical data based on current rate
-const generateHistoricalData = (currentRate, days = 30) => {
-  const data = [];
-  const baseDate = new Date();
-  let previousRate = currentRate * 0.98; // Start slightly lower
+const fetchHistoricalData = async (base, quote) => {
+  if (base === 'XAU') return []; // Gold history typically requires paid API
   
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(baseDate);
-    date.setDate(date.getDate() - i);
-    
-    // Create more realistic price movement (random walk)
-    const dailyChange = (Math.random() - 0.5) * 0.02; // ±1% daily change
-    const rate = i === 0 ? currentRate : previousRate * (1 + dailyChange);
-    previousRate = rate;
-    
-    data.push({
-      date: date.toISOString().split('T')[0],
-      rate: parseFloat(rate.toFixed(4)),
-      volume: Math.floor(Math.random() * 1000000) + 500000
-    });
-  }
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(endDate.getDate() - 30);
   
-  return data.sort((a, b) => new Date(a.date) - new Date(b.date));
+  const startStr = startDate.toISOString().split('T')[0];
+  
+  try {
+    const response = await fetch(`https://api.frankfurter.app/${startStr}..?from=${base}&to=${quote}`);
+    const data = await response.json();
+    
+    if (data.rates) {
+      return Object.keys(data.rates).map(date => ({
+        date,
+        rate: data.rates[date][quote]
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error("History fetch failed", error);
+    return [];
+  }
 };
 
-// Custom Tooltip Components
+// --- Sub-components ---
+
 const CustomTooltip = ({ active, payload, label, formatter }) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-white/95 backdrop-blur-md p-4 border-0 rounded-xl shadow-2xl border border-gray-200/50">
-        <p className="font-semibold text-gray-800 text-sm mb-2">{label}</p>
+      <div className="bg-white/95 backdrop-blur-md p-4 border border-slate-200 rounded-xl shadow-lg">
+        <p className="font-bold text-slate-800 text-sm mb-2 font-sans">{label}</p>
         {payload.map((entry, index) => (
           <div key={index} className="flex items-center gap-2 mb-1">
             <div 
               className="w-3 h-3 rounded-full" 
-              style={{ backgroundColor: entry.color }}
+              style={{ backgroundColor: entry.color || entry.fill }}
             />
-            <p className="text-gray-600 text-sm font-medium">
+            <p className="text-slate-600 text-sm font-medium font-mono">
               {formatter ? formatter(entry.value, entry.name) : `${entry.name}: ${entry.value}`}
             </p>
           </div>
@@ -127,15 +143,15 @@ const CustomTooltip = ({ active, payload, label, formatter }) => {
   return null;
 };
 
+// --- Main Component ---
+
 const TradingSettings = () => {
-  // State for forex data
   const [forexData, setForexData] = useState({});
   const [historicalData, setHistoricalData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   
-  // Trading settings state
   const [settings, setSettings] = useState({
     selectedPair: 'EURUSD',
     riskPercentage: 2.5,
@@ -145,163 +161,49 @@ const TradingSettings = () => {
     lotSize: 0.1
   });
 
-  // Chart data state
   const [performanceData, setPerformanceData] = useState([]);
   const [pairComparisonData, setPairComparisonData] = useState([]);
-  const [riskData, setRiskData] = useState([]);
   const [riskComponents, setRiskComponents] = useState([]);
 
+  // Fetch Current Rates
   const fetchData = useCallback(async () => {
+    setIsLoading(true);
     try {
-      setError(null);
-      const data = await fetchForexData();
+      const results = await Promise.all(
+        CURRENCY_PAIRS.map(async (pair) => {
+          const rate = await fetchRealForexData(pair);
+          return { symbol: pair.symbol, rate };
+        })
+      );
       
-      // Convert base rates to our currency pairs
-      const pairRates = {};
-      CURRENCY_PAIRS.forEach(pair => {
-        const rate = calculatePairRate(data.rates, pair.base, pair.quote);
-        pairRates[pair.symbol] = rate;
+      const newRates = {};
+      results.forEach(item => {
+        if(item.rate) newRates[item.symbol] = item.rate;
       });
       
-      setForexData(pairRates);
-      
-      // Generate historical data for selected pair
-      if (pairRates[settings.selectedPair]) {
-        const historical = generateHistoricalData(pairRates[settings.selectedPair]);
-        setHistoricalData(historical);
-      }
-      
+      setForexData(newRates);
       setLastUpdate(new Date().toLocaleTimeString());
-      setIsLoading(false);
+      setError(null);
     } catch (err) {
-      setError(err.message);
+      setError('Failed to fetch live rates');
+    } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  // Fetch History
+  useEffect(() => {
+    const loadHistory = async () => {
+      const pair = CURRENCY_PAIRS.find(p => p.symbol === settings.selectedPair);
+      if (pair) {
+        const history = await fetchHistoricalData(pair.base, pair.quote);
+        setHistoricalData(history);
+      }
+    };
+    loadHistory();
   }, [settings.selectedPair]);
 
-  // CORRECTED: Calculate Expected Value per trade
-  const calculateExpectedValue = useCallback(() => {
-    const winProbability = settings.winRate / 100;
-    const lossProbability = 1 - winProbability;
-    const riskAmount = settings.accountBalance * (settings.riskPercentage / 100);
-    const winAmount = riskAmount * settings.riskRewardRatio;
-    
-    return (winAmount * winProbability) - (riskAmount * lossProbability);
-  }, [settings]);
-
-  // CORRECTED: Calculate Kelly Criterion for optimal position sizing
-  const calculateKellyCriterion = useCallback(() => {
-    const winRate = settings.winRate / 100;
-    const riskRewardRatio = settings.riskRewardRatio;
-    
-    // Kelly Formula: f = (bp - q) / b
-    // where b = odds (risk:reward), p = win probability, q = loss probability
-    const kelly = (winRate * riskRewardRatio - (1 - winRate)) / riskRewardRatio;
-    return Math.max(0, Math.min(1, kelly)) * 100; // Convert to percentage and cap at 100%
-  }, [settings]);
-
-  // CORRECTED: Calculate Risk Score based on multiple factors
-  const calculateRiskScore = useCallback(() => {
-    const kelly = calculateKellyCriterion();
-    const currentRiskPercentage = settings.riskPercentage;
-    
-    // Risk increases if we're betting more than Kelly suggests
-    const kellyRisk = currentRiskPercentage > kelly ? 
-      Math.min(100, (currentRiskPercentage - kelly) * 10) : 
-      Math.max(0, kelly - currentRiskPercentage);
-    
-    // Win rate risk (lower win rates = higher risk)
-    const winRateRisk = Math.max(0, (70 - settings.winRate) * 2);
-    
-    // Risk-reward ratio risk (lower ratios = higher risk for same win rate)
-    const rrRisk = settings.riskRewardRatio < 1.5 ? (1.5 - settings.riskRewardRatio) * 30 : 0;
-    
-    const overallRisk = (kellyRisk * 0.4) + (winRateRisk * 0.4) + (rrRisk * 0.2);
-    return Math.min(100, Math.max(0, overallRisk));
-  }, [settings, calculateKellyCriterion]);
-
-  // Generate dynamic chart data based on user settings
-  useEffect(() => {
-    const expectedValue = calculateExpectedValue();
-    const kelly = calculateKellyCriterion();
-    const riskScore = calculateRiskScore();
-    
-    // CORRECTED: Performance Scenarios based on actual user settings
-    const baseReturn = expectedValue * 20; // Assuming 20 trades per month
-    const scenarios = [
-      { 
-        scenario: 'Worst Case', 
-        return: baseReturn * -2, // 2x worse than expected
-        fill: '#ef4444',
-        color: '#ef4444'
-      },
-      { 
-        scenario: 'Conservative', 
-        return: baseReturn * 0.5, // Half expected return
-        fill: '#f59e0b',
-        color: '#f59e0b'
-      },
-      { 
-        scenario: 'Expected', 
-        return: baseReturn, // Actual expected return
-        fill: '#3b82f6',
-        color: '#3b82f6'
-      },
-      { 
-        scenario: 'Best Case', 
-        return: baseReturn * 1.8, // 1.8x better than expected
-        fill: '#10b981',
-        color: '#10b981'
-      }
-    ];
-    setPerformanceData(scenarios);
-
-    // CORRECTED: Currency pair comparison with realistic volatility
-    const majorPairs = CURRENCY_PAIRS.slice(1, 7);
-    const comparison = majorPairs.map((pair, index) => {
-      const rate = forexData[pair.symbol] || 1;
-      
-      // Different pairs have different volatilities
-      const volatilityMap = {
-        'EURUSD': 0.015, 'GBPUSD': 0.018, 'USDCAD': 0.012,
-        'USDCHF': 0.014, 'USDJPY': 0.016, 'AUDCAD': 0.020
-      };
-      
-      const volatility = volatilityMap[pair.symbol] || 0.015;
-      const riskAmount = settings.accountBalance * (settings.riskPercentage / 100);
-      const expectedReturn = riskAmount * settings.riskRewardRatio * (settings.winRate / 100) * volatility * 20;
-      
-      const colors = [
-        '#8884d8', '#83a6ed', '#8dd1e1', '#82ca9d', 
-        '#a4de6c', '#d0ed57', '#ffc658', '#ff8042'
-      ];
-      
-      return {
-        pair: pair.symbol,
-        expectedReturn: expectedReturn,
-        currentRate: rate,
-        volatility: volatility,
-        fill: colors[index % colors.length],
-        color: colors[index % colors.length]
-      };
-    });
-    setPairComparisonData(comparison);
-
-    // CORRECTED: Risk components with proper calculations
-    const positionSizeRisk = Math.abs(settings.riskPercentage - kelly) * 5;
-    const winRateRisk = settings.winRate < 60 ? (60 - settings.winRate) * 1.5 : Math.max(0, (settings.winRate - 80) * 2);
-    
-    setRiskData([
-      { name: 'Overall Risk', value: riskScore, fill: '#ef4444' }
-    ]);
-    
-    setRiskComponents([
-      { name: 'Position Size Risk', value: positionSizeRisk, fill: '#f59e0b' },
-      { name: 'Win Rate Risk', value: winRateRisk, fill: '#ef4444' }
-    ]);
-    
-  }, [forexData, settings, calculateExpectedValue, calculateKellyCriterion, calculateRiskScore]);
-
+  // Initial Load
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 60000);
@@ -312,91 +214,125 @@ const TradingSettings = () => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
-  // CORRECTED: ROI Calculation with realistic compounding
+  // --- Calculations ---
+
+  const calculateExpectedValue = useCallback(() => {
+    const winProbability = settings.winRate / 100;
+    const lossProbability = 1 - winProbability;
+    const riskAmount = settings.accountBalance * (settings.riskPercentage / 100);
+    const winAmount = riskAmount * settings.riskRewardRatio;
+    return (winAmount * winProbability) - (riskAmount * lossProbability);
+  }, [settings]);
+
+  const calculateKellyCriterion = useCallback(() => {
+    const winRate = settings.winRate / 100;
+    const riskRewardRatio = settings.riskRewardRatio;
+    const kelly = (winRate * riskRewardRatio - (1 - winRate)) / riskRewardRatio;
+    return Math.max(0, Math.min(1, kelly)) * 100; 
+  }, [settings]);
+
+  const calculateRiskScore = useCallback(() => {
+    const kelly = calculateKellyCriterion();
+    const currentRiskPercentage = settings.riskPercentage;
+    const kellyRisk = currentRiskPercentage > kelly ? Math.min(100, (currentRiskPercentage - kelly) * 10) : Math.max(0, kelly - currentRiskPercentage);
+    const winRateRisk = Math.max(0, (70 - settings.winRate) * 2);
+    const rrRisk = settings.riskRewardRatio < 1.5 ? (1.5 - settings.riskRewardRatio) * 30 : 0;
+    
+    const overallRisk = (kellyRisk * 0.4) + (winRateRisk * 0.4) + (rrRisk * 0.2);
+    return Math.min(100, Math.max(0, overallRisk));
+  }, [settings, calculateKellyCriterion]);
+
   const calculateROI = useCallback(() => {
     const tradesPerMonth = 20;
     const expectedValue = calculateExpectedValue();
-    
     let balance = settings.accountBalance;
     const monthlyReturns = [];
     
     for (let i = 0; i < 12; i++) {
-      // Monthly return with compounding
       const monthlyReturn = expectedValue * tradesPerMonth;
       balance += monthlyReturn;
-      
-      // Adjust for compounding effect (position size grows with balance)
-      const currentRiskAmount = balance * (settings.riskPercentage / 100);
-      const adjustedMonthlyReturn = currentRiskAmount * settings.riskRewardRatio * (settings.winRate / 100) * tradesPerMonth;
-      
       const roi = ((balance - settings.accountBalance) / settings.accountBalance) * 100;
       
       monthlyReturns.push({
-        month: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i],
+        month: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i],
         roi: roi,
-        balance: balance,
-        monthlyReturn: i === 0 ? monthlyReturn : adjustedMonthlyReturn
+        balance: balance
       });
     }
-    
     return monthlyReturns;
   }, [settings, calculateExpectedValue]);
 
-  // CORRECTED: Annualized ROI with proper calculation
-  const calculateAnnualizedROI = useCallback(() => {
-    const roiData = calculateROI();
-    const finalBalance = roiData[roiData.length - 1].balance;
-    return ((finalBalance - settings.accountBalance) / settings.accountBalance) * 100;
-  }, [calculateROI, settings.accountBalance]);
+  // --- Effects for Chart Data ---
+
+  useEffect(() => {
+    const expectedValue = calculateExpectedValue();
+    const kelly = calculateKellyCriterion();
+    
+    // Performance Scenarios
+    const baseReturn = expectedValue * 20;
+    const scenarios = [
+      { scenario: 'Worst Case', return: baseReturn * -2, fill: '#ef4444' },
+      { scenario: 'Conservative', return: baseReturn * 0.5, fill: '#f59e0b' },
+      { scenario: 'Expected', return: baseReturn, fill: '#3b82f6' },
+      { scenario: 'Best Case', return: baseReturn * 1.8, fill: '#10b981' }
+    ];
+    setPerformanceData(scenarios);
+
+    // Pair Comparison
+    const majorPairs = CURRENCY_PAIRS.slice(1, 7);
+    const comparison = majorPairs.map((pair, index) => {
+      const volatilityMap = { 'EURUSD': 0.015, 'GBPUSD': 0.018, 'USDCAD': 0.012, 'USDCHF': 0.014, 'USDJPY': 0.016, 'AUDCAD': 0.020 };
+      const volatility = volatilityMap[pair.symbol] || 0.015;
+      const riskAmount = settings.accountBalance * (settings.riskPercentage / 100);
+      const expectedReturn = riskAmount * settings.riskRewardRatio * (settings.winRate / 100) * volatility * 20;
+      const colors = ['#8884d8', '#83a6ed', '#8dd1e1', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff8042'];
+      
+      return {
+        pair: pair.symbol,
+        expectedReturn: expectedReturn,
+        fill: colors[index % colors.length]
+      };
+    });
+    setPairComparisonData(comparison);
+
+    // Risk components
+    const positionSizeRisk = Math.abs(settings.riskPercentage - kelly) * 5;
+    const winRateRisk = settings.winRate < 60 ? (60 - settings.winRate) * 1.5 : Math.max(0, (settings.winRate - 80) * 2);
+    setRiskComponents([
+      { name: 'Position Size Risk', value: positionSizeRisk, fill: '#f59e0b' },
+      { name: 'Win Rate Risk', value: winRateRisk, fill: '#ef4444' }
+    ]);
+    
+  }, [forexData, settings, calculateExpectedValue, calculateKellyCriterion, calculateRiskScore]);
 
   const expectedValue = calculateExpectedValue();
   const roiData = calculateROI();
-  const roiPercentage = calculateAnnualizedROI();
+  const roiPercentage = ((roiData[roiData.length - 1].balance - settings.accountBalance) / settings.accountBalance) * 100;
   const kelly = calculateKellyCriterion();
 
   const recommendation = {
-    text: expectedValue > 0 ? 
-      (settings.riskPercentage <= kelly ? 'Optimal Strategy' : 'Reduce Position Size') : 
-      'High Risk Strategy',
-    color: expectedValue > 0 ? 
-      (settings.riskPercentage <= kelly ? 'text-green-600' : 'text-yellow-600') : 
-      'text-red-600',
-    icon: expectedValue > 0 ? 
-      (settings.riskPercentage <= kelly ? TrendingUp : AlertCircle) : 
-      TrendingDown
-  };
-
-  // Color scheme for consistent styling
-  const chartColors = {
-    areaFill: '#3b82f6',
-    bearish: '#ef4444',
-    conservative: '#f59e0b',
-    moderate: '#3b82f6',
-    aggressive: '#10b981',
-    winRate: '#10b981',
-    lossRate: '#ef4444',
-    roi: '#06b6d4',
-    risk: '#ef4444'
+    text: expectedValue > 0 ? (settings.riskPercentage <= kelly ? 'Optimal Strategy' : 'Reduce Position Size') : 'High Risk Strategy',
+    color: expectedValue > 0 ? (settings.riskPercentage <= kelly ? 'text-emerald-600' : 'text-amber-600') : 'text-rose-600',
+    icon: expectedValue > 0 ? (settings.riskPercentage <= kelly ? TrendingUp : AlertCircle) : TrendingDown
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-6">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-indigo-100 selection:text-indigo-900 p-6">
       <div className="max-w-7xl mx-auto space-y-8">
         
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-800 mb-2">
               Advanced Trading Configuration
             </h1>
-            <p className="text-gray-600 text-lg">Real-time forex analytics and strategy optimization</p>
+            <p className="text-slate-500 font-medium">Real-time forex analytics and strategy optimization</p>
           </div>
           
           <button
             onClick={fetchData}
             disabled={isLoading}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 shadow-md shadow-indigo-200"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             <span>{isLoading ? 'Updating...' : 'Refresh Data'}</span>
@@ -405,27 +341,27 @@ const TradingSettings = () => {
 
         {/* Error Display */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center">
-            <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
+          <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 mb-6 flex items-center">
+            <AlertCircle className="w-5 h-5 text-rose-500 mr-2" />
             <div>
-              <p className="text-red-800 font-medium">Failed to fetch forex data</p>
-              <p className="text-red-600 text-sm">{error}</p>
+              <p className="text-rose-800 font-medium">Data Fetch Issue</p>
+              <p className="text-rose-600 text-sm">{error}</p>
             </div>
           </div>
         )}
 
         {/* Settings Panel */}
-        <div className="bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
           <div className="flex items-center space-x-3 mb-6">
-            <div className="p-2 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-lg">
+            <div className="p-2 bg-indigo-600 rounded-lg shadow-md shadow-indigo-200">
               <Settings className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Trading Parameters</h2>
-              <p className="text-sm text-gray-500">Configure your trading strategy</p>
+              <h2 className="text-xl font-bold text-slate-800">Trading Parameters</h2>
+              <p className="text-sm text-slate-500 font-medium">Configure your trading strategy</p>
             </div>
-            <div className="ml-auto bg-blue-50 px-3 py-1 rounded-lg">
-              <span className="text-sm text-blue-700 font-medium">
+            <div className="ml-auto bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
+              <span className="text-sm text-blue-700 font-medium font-mono">
                 Kelly Criterion: {kelly.toFixed(1)}%
               </span>
             </div>
@@ -433,11 +369,11 @@ const TradingSettings = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Currency Pair</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Currency Pair</label>
               <select
                 value={settings.selectedPair}
                 onChange={(e) => handleSettingChange('selectedPair', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-medium transition-shadow"
               >
                 {CURRENCY_PAIRS.map(pair => (
                   <option key={pair.symbol} value={pair.symbol}>{pair.symbol}</option>
@@ -446,7 +382,7 @@ const TradingSettings = () => {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Risk %</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Risk %</label>
               <input
                 type="number"
                 step="0.1"
@@ -454,24 +390,24 @@ const TradingSettings = () => {
                 max="10"
                 value={settings.riskPercentage}
                 onChange={(e) => handleSettingChange('riskPercentage', parseFloat(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-mono font-medium"
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Win Rate %</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Win Rate %</label>
               <input
                 type="number"
                 min="10"
                 max="95"
                 value={settings.winRate}
                 onChange={(e) => handleSettingChange('winRate', parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-mono font-medium"
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Risk:Reward</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Risk:Reward</label>
               <input
                 type="number"
                 step="0.1"
@@ -479,24 +415,24 @@ const TradingSettings = () => {
                 max="5"
                 value={settings.riskRewardRatio}
                 onChange={(e) => handleSettingChange('riskRewardRatio', parseFloat(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-mono font-medium"
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Account Balance</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Balance ($)</label>
               <input
                 type="number"
                 min="1000"
                 step="1000"
                 value={settings.accountBalance}
                 onChange={(e) => handleSettingChange('accountBalance', parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-mono font-medium"
               />
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Lot Size</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Lot Size</label>
               <input
                 type="number"
                 step="0.01"
@@ -504,7 +440,7 @@ const TradingSettings = () => {
                 max="10"
                 value={settings.lotSize}
                 onChange={(e) => handleSettingChange('lotSize', parseFloat(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-mono font-medium"
               />
             </div>
           </div>
@@ -514,19 +450,19 @@ const TradingSettings = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Price History Chart */}
-          <div className="lg:col-span-2 bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-lg">
+                <div className="p-2 bg-blue-500 rounded-lg shadow-md shadow-blue-200">
                   <TrendingUp className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900">{settings.selectedPair} Price History</h2>
-                  <p className="text-sm text-gray-500">30-day price movement</p>
+                  <h2 className="text-xl font-bold text-slate-800">{settings.selectedPair} Price History</h2>
+                  <p className="text-sm text-slate-500 font-medium">30-day market movement</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
-                <span className="text-sm font-medium text-blue-700">
+              <div className="flex items-center space-x-2 px-4 py-2 rounded-full bg-blue-50 border border-blue-100">
+                <span className="text-sm font-bold text-indigo-600 font-mono">
                   Current: {forexData[settings.selectedPair]?.toFixed(4) || '---'}
                 </span>
               </div>
@@ -537,33 +473,34 @@ const TradingSettings = () => {
                 <AreaChart data={historicalData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={chartColors.areaFill} stopOpacity={0.8}/>
-                      <stop offset="100%" stopColor={chartColors.areaFill} stopOpacity={0.1}/>
+                      <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.2}/>
+                      <stop offset="100%" stopColor="#4f46e5" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <XAxis 
                     dataKey="date" 
-                    tick={{ fontSize: 12, fill: '#64748b', fontWeight: 500 }}
+                    tick={{ fontSize: 12, fill: '#64748b', fontWeight: 500, fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(date) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   />
                   <YAxis 
-                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    domain={['auto', 'auto']}
+                    tick={{ fontSize: 12, fill: '#64748b', fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
-                    tickFormatter={(value) => value.toFixed(4)}
+                    tickFormatter={(value) => value.toFixed(3)}
                   />
                   <Tooltip 
                     content={<CustomTooltip formatter={(value, name) => [value.toFixed(4), name]} />}
-                    cursor={{ stroke: 'rgba(59, 130, 246, 0.1)', strokeWidth: 2 }}
+                    cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '3 3' }}
                   />
                   <Area 
                     type="monotone" 
                     dataKey="rate" 
-                    stroke={chartColors.areaFill} 
+                    stroke="#4f46e5" 
                     fill="url(#priceGradient)"
-                    name="Exchange Rate"
+                    name="Rate"
                     strokeWidth={2}
                   />
                 </AreaChart>
@@ -572,64 +509,44 @@ const TradingSettings = () => {
           </div>
 
           {/* Strategy Risk Pie Chart */}
-          <div className="bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/50 min-h-[450px] rounded-2xl w-full m-1 p-6 relative shadow-xl border border-blue-100/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200 flex flex-col">
             <div className="mb-6 text-center">
               <div className="flex items-center justify-center space-x-3 mb-3">
-                <div className="p-2 bg-gradient-to-r from-blue-400/20 to-indigo-500/20 rounded-lg border border-blue-200/30">
+                <div className="p-2 bg-indigo-100 rounded-lg">
                   <PieChartIcon className="w-5 h-5 text-indigo-600" />
                 </div>
-                <h3 className="text-lg font-semibold bg-gradient-to-r from-indigo-700 to-blue-600 bg-clip-text text-transparent">
+                <h3 className="text-lg font-bold text-slate-800">
                   Strategy Risk Analysis
                 </h3>
               </div>
-              <p className="text-sm text-gray-600 mb-4">Risk distribution by component</p>
+              <p className="text-sm text-slate-500 font-medium mb-4">Risk distribution by component</p>
               
-              <div className="inline-flex items-center bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 px-5 py-2.5 rounded-full border border-blue-200/40 shadow-sm">
-                <div className="w-2 h-2 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full mr-2 animate-pulse"></div>
-                <span className="text-indigo-700 font-semibold text-sm">
+              <div className="inline-flex items-center bg-slate-50 px-5 py-2.5 rounded-full border border-slate-200">
+                <div className="w-2 h-2 bg-indigo-600 rounded-full mr-2 animate-pulse"></div>
+                <span className="text-slate-700 font-semibold text-sm font-mono">
                   Overall Risk Score: {calculateRiskScore().toFixed(1)}%
                 </span>
               </div>
             </div>
             
-            <div style={{ width: '100%', height: '300px' }}>
+            <div className="flex-1 min-h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <defs>
-                    <filter id="riskShadow" x="-50%" y="-50%" width="200%" height="200%">
-                      <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="rgba(59,130,246,0.15)"/>
-                      <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="rgba(99,102,241,0.1)"/>
-                    </filter>
-                    
-                    <linearGradient id="positionRiskGradient" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#fed7aa" stopOpacity={0.9}/>
-                      <stop offset="50%" stopColor="#fdba74" stopOpacity={0.8}/>
-                      <stop offset="100%" stopColor="#fb923c" stopOpacity={0.7}/>
-                    </linearGradient>
-                    
-                    <linearGradient id="winRateRiskGradient" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#fecaca" stopOpacity={0.9}/>
-                      <stop offset="50%" stopColor="#f87171" stopOpacity={0.8}/>
-                      <stop offset="100%" stopColor="#ef4444" stopOpacity={0.7}/>
-                    </linearGradient>
-                  </defs>
-                  
                   <Pie
                     data={riskComponents}
                     cx="50%"
                     cy="50%"
                     innerRadius="55%"
-                    outerRadius="90%"
+                    outerRadius="80%"
                     dataKey="value"
                     labelLine={false}
-                    stroke="rgba(255,255,255,0.9)"
-                    strokeWidth={3}
-                    filter="url(#riskShadow)"
+                    stroke="#fff"
+                    strokeWidth={2}
                   >
                     {riskComponents.map((entry, index) => (
                       <Cell 
                         key={`riskCell-${index}`} 
-                        fill={index === 0 ? 'url(#positionRiskGradient)' : 'url(#winRateRiskGradient)'}
+                        fill={entry.fill}
                       />
                     ))}
                   </Pie>
@@ -638,21 +555,9 @@ const TradingSettings = () => {
                       if (active && payload && payload.length) {
                         const data = payload[0];
                         return (
-                          <div className="bg-white/95 backdrop-blur-md p-4 border-0 rounded-xl shadow-2xl border border-blue-200/30">
-                            <p className="font-semibold text-indigo-800 text-sm mb-2">{data.name}</p>
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full shadow-sm" 
-                                style={{ 
-                                  background: data.name === 'Position Size Risk' 
-                                    ? 'linear-gradient(135deg, #fed7aa, #fb923c)' 
-                                    : 'linear-gradient(135deg, #fecaca, #ef4444)'
-                                }}
-                              />
-                              <p className="text-gray-700 text-sm font-medium">
-                                Risk Level: {data.value.toFixed(1)}%
-                              </p>
-                            </div>
+                          <div className="bg-white p-3 border border-slate-200 rounded-lg shadow-lg">
+                            <p className="font-bold text-slate-800 text-sm">{data.name}</p>
+                            <p className="text-slate-600 text-xs font-mono">Risk: {data.value.toFixed(1)}%</p>
                           </div>
                         );
                       }
@@ -663,25 +568,15 @@ const TradingSettings = () => {
               </ResponsiveContainer>
             </div>
             
-            {/* Risk components breakdown */}
-            <div className="grid grid-cols-2 gap-4 mt-6">
+            <div className="grid grid-cols-2 gap-4 mt-4">
               {riskComponents.map((component, index) => (
-                <div key={index} className="bg-gray-50 rounded-lg p-3 flex flex-col">
+                <div key={index} className="bg-slate-50 rounded-lg p-3 flex flex-col border border-slate-200">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-gray-700">{component.name}</span>
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: component.fill }} />
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">{component.name.split(' ')[0]}</span>
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: component.fill }} />
                   </div>
-                  <div className="text-xl font-bold text-gray-800 mt-1">
+                  <div className="text-lg font-bold text-slate-800 font-mono">
                     {component.value.toFixed(1)}%
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
-                    <div 
-                      className="h-1.5 rounded-full" 
-                      style={{ 
-                        width: `${Math.min(100, component.value)}%`,
-                        backgroundColor: component.fill
-                      }}
-                    />
                   </div>
                 </div>
               ))}
@@ -692,14 +587,14 @@ const TradingSettings = () => {
         {/* Performance Analysis */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Performance Scenarios */}
-          <div className="bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-gradient-to-r from-purple-400 to-pink-500 rounded-lg">
+              <div className="p-2 bg-purple-500 rounded-lg shadow-md shadow-purple-200">
                 <PieChartIcon className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Performance Scenarios</h2>
-                <p className="text-sm text-gray-500">Expected returns based on your settings</p>
+                <h2 className="text-lg font-bold text-slate-800">Performance Scenarios</h2>
+                <p className="text-sm text-slate-500 font-medium">Expected returns based on your settings</p>
               </div>
             </div>
             
@@ -713,23 +608,21 @@ const TradingSettings = () => {
                     tickLine={false}
                   />
                   <YAxis 
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(value) => `${(value/1000).toFixed(1)}k`}
                   />
                   <Tooltip 
                     content={<CustomTooltip formatter={(value) => [`${value.toFixed(0)}`, ' Monthly Return']} />}
-                    cursor={{ stroke: 'rgba(0,0,0,0.05)', strokeWidth: 0 }}
+                    cursor={{ fill: '#f1f5f9' }}
                   />
                   <Bar 
                     dataKey="return" 
-                    radius={[8, 8, 0, 0]}
-                    stroke="rgba(255,255,255,0.3)"
-                    strokeWidth={1}
+                    radius={[4, 4, 0, 0]}
                   >
                     {performanceData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -738,14 +631,14 @@ const TradingSettings = () => {
           </div>
 
           {/* Currency Pair Performance */}
-          <div className="bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-gradient-to-r from-green-400 to-teal-500 rounded-lg">
+              <div className="p-2 bg-emerald-500 rounded-lg shadow-md shadow-emerald-200">
                 <BarChart3 className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Pair Comparison</h2>
-                <p className="text-sm text-gray-500">Expected returns by volatility</p>
+                <h2 className="text-lg font-bold text-slate-800">Pair Comparison</h2>
+                <p className="text-sm text-slate-500 font-medium">Expected returns by volatility</p>
               </div>
             </div>
             
@@ -760,23 +653,21 @@ const TradingSettings = () => {
                     interval={0}
                   />
                   <YAxis 
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(value) => `${(value/100).toFixed(0)}`}
                   />
                   <Tooltip 
                     content={<CustomTooltip formatter={(value) => [`${value.toFixed(0)}`, ' Monthly Expected']} />}
-                    cursor={{ stroke: 'rgba(0,0,0,0.05)', strokeWidth: 0 }}
+                    cursor={{ fill: '#f1f5f9' }}
                   />
                   <Bar 
                     dataKey="expectedReturn" 
-                    radius={[8, 8, 0, 0]}
-                    stroke="rgba(255,255,255,0.3)"
-                    strokeWidth={1}
+                    radius={[4, 4, 0, 0]}
                   >
                     {pairComparisonData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -788,17 +679,17 @@ const TradingSettings = () => {
         {/* Bottom Row: ROI and Win Rate */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* ROI Analysis */}
-          <div className="bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-lg">
+              <div className="p-2 bg-cyan-500 rounded-lg shadow-md shadow-cyan-200">
                 <DollarSign className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900">ROI Analysis</h2>
-                <p className="text-sm text-gray-500">Projected returns with compounding</p>
+                <h2 className="text-lg font-bold text-slate-800">ROI Analysis</h2>
+                <p className="text-sm text-slate-500 font-medium">Projected returns with compounding</p>
               </div>
-              <div className="ml-auto flex items-center space-x-2 px-4 py-2 rounded-full bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
-                <span className="text-sm font-medium text-blue-700">
+              <div className="ml-auto flex items-center space-x-2 px-4 py-2 rounded-full bg-cyan-50 border border-cyan-100">
+                <span className="text-sm font-bold text-cyan-700 font-mono">
                   Annual: {roiPercentage.toFixed(1)}%
                 </span>
               </div>
@@ -809,8 +700,8 @@ const TradingSettings = () => {
                 <LineChart data={roiData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="roiGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={chartColors.roi} stopOpacity={0.8}/>
-                      <stop offset="100%" stopColor={chartColors.roi} stopOpacity={0.1}/>
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.2}/>
+                      <stop offset="100%" stopColor="#06b6d4" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <XAxis 
@@ -820,7 +711,7 @@ const TradingSettings = () => {
                     tickLine={false}
                   />
                   <YAxis 
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(value) => `${value.toFixed(0)}%`}
@@ -830,14 +721,14 @@ const TradingSettings = () => {
                       if (name === 'roi') return [`${value.toFixed(1)}%`, 'ROI'];
                       return [`${value.toFixed(0)}`, 'Balance'];
                     }} />}
-                    cursor={{ stroke: 'rgba(59, 130, 246, 0.1)', strokeWidth: 2 }}
+                    cursor={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                   />
                   <Line 
                     type="monotone" 
                     dataKey="roi" 
-                    stroke={chartColors.roi} 
+                    stroke="#06b6d4" 
                     strokeWidth={2}
-                    dot={{ stroke: chartColors.roi, strokeWidth: 2, r: 4, fill: 'white' }}
+                    dot={{ stroke: '#06b6d4', strokeWidth: 2, r: 4, fill: 'white' }}
                     activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }}
                   />
                   <Area 
@@ -852,14 +743,14 @@ const TradingSettings = () => {
           </div>
 
           {/* Win Rate Probability */}
-          <div className="bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center space-x-3 mb-6">
-              <div className="p-2 bg-gradient-to-r from-amber-400 to-orange-500 rounded-lg">
+              <div className="p-2 bg-amber-500 rounded-lg shadow-md shadow-amber-200">
                 <Target className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Win Rate Analysis</h2>
-                <p className="text-sm text-gray-500">Success vs failure distribution</p>
+                <h2 className="text-lg font-bold text-slate-800">Win Rate Analysis</h2>
+                <p className="text-sm text-slate-500 font-medium">Success vs failure distribution</p>
               </div>
             </div>
             
@@ -867,20 +758,10 @@ const TradingSettings = () => {
               <div className="flex-1">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <defs>
-                      <linearGradient id="winGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={chartColors.winRate} stopOpacity={0.9}/>
-                        <stop offset="100%" stopColor={chartColors.winRate} stopOpacity={0.7}/>
-                      </linearGradient>
-                      <linearGradient id="lossGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={chartColors.lossRate} stopOpacity={0.9}/>
-                        <stop offset="100%" stopColor={chartColors.lossRate} stopOpacity={0.7}/>
-                      </linearGradient>
-                    </defs>
                     <Pie
                       data={[
-                        { name: 'Wins', value: settings.winRate },
-                        { name: 'Losses', value: 100 - settings.winRate }
+                        { name: 'Wins', value: settings.winRate, fill: '#10b981' },
+                        { name: 'Losses', value: 100 - settings.winRate, fill: '#ef4444' }
                       ]}
                       cx="50%"
                       cy="50%"
@@ -891,8 +772,8 @@ const TradingSettings = () => {
                       startAngle={90}
                       endAngle={-270}
                     >
-                      <Cell key="wins" fill="url(#winGradient)" stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
-                      <Cell key="losses" fill="url(#lossGradient)" stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
+                      <Cell key="wins" fill="#10b981" />
+                      <Cell key="losses" fill="#ef4444" />
                     </Pie>
                     <Tooltip 
                       content={<CustomTooltip formatter={(value) => [`${value}%`, 'Probability']} />}
@@ -902,7 +783,7 @@ const TradingSettings = () => {
                       y="45%" 
                       textAnchor="middle" 
                       dominantBaseline="middle" 
-                      className="text-2xl font-bold fill-gray-700"
+                      className="text-2xl font-bold fill-slate-800 font-mono"
                     >
                       {settings.winRate}%
                     </text>
@@ -911,7 +792,7 @@ const TradingSettings = () => {
                       y="55%" 
                       textAnchor="middle" 
                       dominantBaseline="middle" 
-                      className="text-sm fill-gray-500"
+                      className="text-sm fill-slate-500 font-medium"
                     >
                       Win Rate
                     </text>
@@ -920,15 +801,15 @@ const TradingSettings = () => {
               </div>
               
               <div className="grid grid-cols-2 gap-4 mt-4">
-                <div className="flex items-center justify-center bg-green-50 rounded-lg py-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-                  <span className="text-sm font-medium text-green-700">
+                <div className="flex items-center justify-center bg-emerald-50 rounded-lg py-2 border border-emerald-100">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500 mr-2"></div>
+                  <span className="text-sm font-medium text-emerald-700 font-mono">
                     Wins: {settings.winRate}%
                   </span>
                 </div>
-                <div className="flex items-center justify-center bg-red-50 rounded-lg py-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
-                  <span className="text-sm font-medium text-red-700">
+                <div className="flex items-center justify-center bg-rose-50 rounded-lg py-2 border border-rose-100">
+                  <div className="w-3 h-3 rounded-full bg-rose-500 mr-2"></div>
+                  <span className="text-sm font-medium text-rose-700 font-mono">
                     Losses: {100 - settings.winRate}%
                   </span>
                 </div>
@@ -938,67 +819,63 @@ const TradingSettings = () => {
         </div>
 
         {/* Key Metrics and Recommendation */}
-        <div className="bg-gradient-to-br from-white to-gray-50/80 rounded-2xl shadow-xl p-6 border border-gray-100/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
           <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-100">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-blue-700">Expected Value</span>
-                <DollarSign className="w-4 h-4 text-blue-500" />
+                <span className="text-sm font-medium text-slate-600">Expected Value</span>
+                <DollarSign className="w-4 h-4 text-slate-400" />
               </div>
-              <p className="text-2xl font-bold text-blue-900">
+              <p className="text-2xl font-bold text-slate-800 font-mono">
                 ${expectedValue > 0 ? '+' : ''}{expectedValue.toFixed(2)}
               </p>
-              <p className="text-xs text-blue-600 mt-1">Per trade</p>
+              <p className="text-xs text-slate-500 mt-1 font-medium">Per trade</p>
             </div>
             
-            <div className="bg-gradient-to-r from-green-50 to-teal-50 p-4 rounded-xl border border-green-100">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-green-700">Annual ROI</span>
-                <Percent className="w-4 h-4 text-green-500" />
+                <span className="text-sm font-medium text-slate-600">Annual ROI</span>
+                <Percent className="w-4 h-4 text-slate-400" />
               </div>
-              <p className="text-2xl font-bold text-green-900">
+              <p className="text-2xl font-bold text-slate-800 font-mono">
                 {roiPercentage.toFixed(1)}%
               </p>
-              <p className="text-xs text-green-600 mt-1">Projected return</p>
+              <p className="text-xs text-slate-500 mt-1 font-medium">Projected return</p>
             </div>
             
-            <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-4 rounded-xl border border-amber-100">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-amber-700">Risk per Trade</span>
-                <AlertCircle className="w-4 h-4 text-amber-500" />
+                <span className="text-sm font-medium text-slate-600">Risk per Trade</span>
+                <AlertCircle className="w-4 h-4 text-slate-400" />
               </div>
-              <p className="text-2xl font-bold text-amber-900">
+              <p className="text-2xl font-bold text-slate-800 font-mono">
                 ${(settings.accountBalance * (settings.riskPercentage / 100)).toFixed(0)}
               </p>
-              <p className="text-xs text-amber-600 mt-1">{settings.riskPercentage}% of balance</p>
+              <p className="text-xs text-slate-500 mt-1 font-medium">{settings.riskPercentage}% of balance</p>
             </div>
             
-            <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-xl border border-purple-100">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-purple-700">Kelly Criterion</span>
-                <Target className="w-4 h-4 text-purple-500" />
+                <span className="text-sm font-medium text-slate-600">Kelly Criterion</span>
+                <Target className="w-4 h-4 text-slate-400" />
               </div>
-              <p className="text-2xl font-bold text-purple-900">
+              <p className="text-2xl font-bold text-slate-800 font-mono">
                 {kelly.toFixed(1)}%
               </p>
-              <p className="text-xs text-purple-600 mt-1">Optimal risk size</p>
+              <p className="text-xs text-slate-500 mt-1 font-medium">Optimal risk size</p>
             </div>
             
-            <div className={`bg-gradient-to-r ${expectedValue > 0 ? 
-              (settings.riskPercentage <= kelly ? 'from-emerald-50 to-green-50 border-emerald-100' : 'from-yellow-50 to-amber-50 border-yellow-100') : 
-              'from-rose-50 to-red-50 border-rose-100'} p-4 rounded-xl border`}>
+            <div className={`p-4 rounded-xl border ${expectedValue > 0 ? 
+              (settings.riskPercentage <= kelly ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200') : 
+              'bg-rose-50 border-rose-200'}`}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Status</span>
-                <recommendation.icon className={`w-4 h-4 ${
-                  expectedValue > 0 ? 
-                    (settings.riskPercentage <= kelly ? 'text-emerald-500' : 'text-yellow-500') : 
-                    'text-rose-500'
-                }`} />
+                <span className="text-sm font-medium text-slate-700">Status</span>
+                <Activity className={`w-4 h-4 ${recommendation.color}`} />
               </div>
               <p className={`text-lg font-bold ${recommendation.color}`}>
                 {recommendation.text}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-slate-500 mt-1 font-medium">
                 {settings.riskPercentage > kelly ? `Reduce to ${kelly.toFixed(1)}%` : 'Strategy looks good'}
               </p>
             </div>
@@ -1006,7 +883,7 @@ const TradingSettings = () => {
         </div>
 
         {/* Footer */}
-        <div className="text-center text-sm text-gray-500 pt-4">
+        <div className="text-center text-sm text-slate-400 pt-4 font-medium">
           <p>Last updated: {lastUpdate || 'Never'} | All calculations based on your current settings</p>
           <p className="mt-1">Forex trading involves substantial risk. Past performance does not guarantee future results.</p>
         </div>
