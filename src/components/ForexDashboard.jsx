@@ -624,6 +624,51 @@ const TradeSettings = ({ currencyData }) => {
     }
   }, [currencyData, selectedPair]);
 
+  // Helper to get Pip Value in USD (Standard Lot)
+  const getPipValueUSD = (symbol, currentRate) => {
+    const pair = CURRENCY_PAIRS.find(p => p.symbol === symbol);
+    if (!pair) return 10;
+
+    const standardLotValue = 100000 * pair.pipValue; // e.g. 1000 JPY or 10 USD
+
+    if (pair.quote === 'USD') return standardLotValue;
+
+    // For USDJPY, USDCAD, USDCHF, etc.
+    // If Quote is JPY
+    if (pair.quote === 'JPY') {
+      // If we are trading USDJPY, the currentRate IS USDJPY
+      // If we are trading AUDJPY, we need USDJPY rate... currently logic assumes USDJPY presence for crosses
+      let conversionRate = currentRate;
+      if (pair.base !== 'USD') {
+        const usdPair = currencyData.find(d => d.pair.symbol === 'USDJPY');
+        if (usdPair) conversionRate = usdPair.currentRate;
+      }
+      return standardLotValue / conversionRate;
+    }
+
+    // If Quote is CAD
+    if (pair.quote === 'CAD') {
+      let conversionRate = currentRate;
+      if (pair.base !== 'USD') {
+        const usdPair = currencyData.find(d => d.pair.symbol === 'USDCAD');
+        if (usdPair) conversionRate = usdPair.currentRate;
+      }
+      return standardLotValue / conversionRate;
+    }
+
+    // If Quote is CHF
+    if (pair.quote === 'CHF') {
+      let conversionRate = currentRate;
+      if (pair.base !== 'USD') {
+        const usdPair = currencyData.find(d => d.pair.symbol === 'USDCHF');
+        if (usdPair) conversionRate = usdPair.currentRate;
+      }
+      return standardLotValue / conversionRate;
+    }
+
+    return 10; // Default fallback
+  };
+
   const generateTradeSignal = () => {
     const data = currencyData.find(d => d.pair.symbol === selectedPair);
     if (!data?.prediction) return null;
@@ -660,10 +705,35 @@ const TradeSettings = ({ currencyData }) => {
     const isBuySignal = signal === 'BUY' || (signal === 'HOLD' && bullishScore >= bearishScore);
 
     // Safe Calculation logic
+    // ATR fallback: use percentage of price (0.2% is reasonable daily volatility)
     const atr = prediction.atr || currentRate * 0.002;
-    // Enforce minimum stop loss (approx 15 pips equivalent for majors)
-    const minSL = pair.pipValue * 15;
-    const slDist = Math.max(minSL, atr * 2);
+
+    // Enforce minimum stop loss in PIPS (not price distance)
+    // For JPY pairs: 1 pip = 0.01, so 20 pips = 0.20 price distance
+    // For USD pairs: 1 pip = 0.0001, so 20 pips = 0.0020 price distance
+    const minPips = 20; // Minimum 20 pips SL for safety
+    const minSL = pair.pipValue * minPips;
+
+    // Calculate ATR-based SL (2x ATR is common)
+    // But ensure it's at least the minimum
+    const atrBasedSL = atr * 2;
+    const slDist = Math.max(minSL, atrBasedSL);
+
+    // Debug log for JPY pairs to verify calculations
+    if (pair.quote === 'JPY' && typeof window !== 'undefined') {
+      if (!window._slDebug) window._slDebug = {};
+      if (!window._slDebug[pair.symbol]) {
+        console.log(`[SL/TP Debug] ${pair.symbol}:`, {
+          currentRate: currentRate.toFixed(3),
+          atr: atr.toFixed(5),
+          minSL: minSL.toFixed(5),
+          atrBasedSL: atrBasedSL.toFixed(5),
+          slDist: slDist.toFixed(5),
+          slPips: (slDist / pair.pipValue).toFixed(1)
+        });
+        window._slDebug[pair.symbol] = true;
+      }
+    }
 
     // ALWAYS calculate SL/TP (use dominant direction for HOLD)
     const sl = isBuySignal ? currentRate - slDist : currentRate + slDist;
@@ -672,15 +742,47 @@ const TradeSettings = ({ currencyData }) => {
     const tp = isBuySignal ? currentRate + tpDist + spreadBuffer : currentRate - tpDist - spreadBuffer;
 
     const riskAmount = accountBalance * (riskPercent / 100);
-    // Lot Size Calc
-    const pipsRisk = slDist / pair.pipValue;
-    const lotSizeRaw = riskAmount / (pipsRisk * 10);
+
+    // DYNAMIC LOT SIZE CALCULATION
+    const pipValueUSD = getPipValueUSD(pair.symbol, currentRate);
+    const pipsRisk = slDist / pair.pipValue; // risk in pips
+
+    // Formula: Risk = PipsRisk * PipValUSD * LotSize
+    // LotSize = Risk / (PipsRisk * PipValUSD)
+    // Note: PipValUSD is for 1 Standard Lot (1.0)
+
+    const lotSizeRaw = riskAmount / (pipsRisk * pipValueUSD);
     const lotSize = useManualLot ? manualLot : Math.min(50, Math.max(0.01, parseFloat(lotSizeRaw.toFixed(2))));
 
-    // Recalculate actual risk/profit based on the final Lot Size (since min lot might exceed percentage risk)
-    const actualRiskAmount = lotSize * pipsRisk * 10;
+    // Recalculate actual risk/profit based on the final Lot Size
+    const actualRiskAmount = lotSize * pipsRisk * pipValueUSD;
+
     const pipsReward = tpDist / pair.pipValue;
-    const actualPotentialProfit = lotSize * pipsReward * 10;
+    const actualPotentialProfit = lotSize * pipsReward * pipValueUSD;
+
+    // Comprehensive debug logging for JPY pairs
+    if (pair.quote === 'JPY' && typeof window !== 'undefined') {
+      if (!window._profitDebug) window._profitDebug = {};
+      if (!window._profitDebug[pair.symbol] || window._profitDebug[pair.symbol].lotSize !== lotSize) {
+        console.log(`[Profit Calc] ${pair.symbol}:`, {
+          accountBalance,
+          riskPercent,
+          riskAmount: riskAmount.toFixed(2),
+          currentRate: currentRate.toFixed(3),
+          pipValueUSD: pipValueUSD.toFixed(4),
+          slDist: slDist.toFixed(5),
+          tpDist: tpDist.toFixed(5),
+          pipsRisk: pipsRisk.toFixed(1),
+          pipsReward: pipsReward.toFixed(1),
+          lotSizeRaw: lotSizeRaw.toFixed(4),
+          lotSize,
+          actualRisk: actualRiskAmount.toFixed(2),
+          actualProfit: actualPotentialProfit.toFixed(2),
+          formula: `${lotSize} lots × ${pipsReward.toFixed(1)} pips × $${pipValueUSD.toFixed(2)}/pip = $${actualPotentialProfit.toFixed(2)}`
+        });
+        window._profitDebug[pair.symbol] = { lotSize };
+      }
+    }
 
     // Strength (1-5 scale)
     const strength = Math.min(5, Math.ceil((Math.max(bullishScore, bearishScore) / 8) * 5));
@@ -697,8 +799,9 @@ const TradeSettings = ({ currencyData }) => {
       bullishScore,
       bearishScore,
       strength,
-      slPips: (slDist / pair.pipValue).toFixed(1),
-      tpPips: (tpDist / pair.pipValue).toFixed(1)
+      slPips: pipsRisk.toFixed(1),
+      tpPips: pipsReward.toFixed(1),
+      pipValueUSD: pipValueUSD.toFixed(4)
     };
   };
 
