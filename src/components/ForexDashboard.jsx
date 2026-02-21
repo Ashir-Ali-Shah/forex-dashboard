@@ -429,6 +429,9 @@ class ForexPredictor {
       }
       atr = sumRanges / (prices.length - 1);
     }
+    // Safety cap for corrupted data spikes preventing insane SL/TP
+    const maxAtr = currentPrice * 0.02;
+    if (atr > maxAtr) atr = maxAtr;
 
     // --- SCORING LOGIC ---
     let score = 0;
@@ -608,7 +611,7 @@ const FeaturedRecommendation = ({ data }) => {
 const TradeSettings = ({ currencyData }) => {
   const [riskPercent, setRiskPercent] = useState(2);
   const [riskReward, setRiskReward] = useState(2);
-  const [accountBalance, setAccountBalance] = useState(100);
+  const [accountBalance, setAccountBalance] = useState(10000);
   const [selectedPair, setSelectedPair] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [useManualLot, setUseManualLot] = useState(false);
@@ -1058,19 +1061,24 @@ const ForexDashboard = () => {
         const now = Date.now();
 
         const formatted = res.map(r => {
-          if (!r.rate) return r.rate === 0 ? { ...dataRef.current.find(d => d.pair.symbol === r.pair.symbol) } : null;
+          let rateToUse = r.rate;
 
-          predictor.addDataPoint(r.pair.symbol, r.rate);
+          if (!rateToUse) {
+            const existing = dataRef.current.find(d => d.pair.symbol === r.pair.symbol);
+            if (existing) rateToUse = existing.currentRate;
+          }
+
+          if (!rateToUse) return null;
+
+          if (r.rate) {
+            predictor.addDataPoint(r.pair.symbol, rateToUse);
+          }
           const prediction = predictor.predictNextPrice(r.pair.symbol, r.pair);
-
-          // Use predictor's history (which includes synthetic data if generated) to ensure stability across reloads
-          // We keep 120 points which matches what the predictor maintains
-          const history = predictor.historicalData[r.pair.symbol].slice(-120);
 
           return {
             pair: r.pair,
-            currentRate: r.rate,
-            history,
+            currentRate: rateToUse,
+            history: predictor.historicalData[r.pair.symbol].slice(-120),
             prediction
           };
         }).filter(Boolean);
@@ -1115,15 +1123,23 @@ const ForexDashboard = () => {
       const now = Date.now();
 
       const formatted = res.map(r => {
-        if (!r.rate) return null;
+        let rateToUse = r.rate;
 
-        predictor.addDataPoint(r.pair.symbol, r.rate);
+        if (!rateToUse) {
+          const existing = dataRef.current.find(d => d.pair.symbol === r.pair.symbol);
+          if (existing) rateToUse = existing.currentRate;
+        }
+
+        if (!rateToUse) return null;
+
+        if (r.rate) {
+          predictor.addDataPoint(r.pair.symbol, rateToUse);
+        }
         const prediction = predictor.predictNextPrice(r.pair.symbol, r.pair);
 
         return {
           pair: r.pair,
-          currentRate: r.rate,
-          // Capture the full history including potentially generated synthetic data
+          currentRate: rateToUse,
           history: predictor.historicalData[r.pair.symbol].slice(-120),
           prediction
         };
@@ -1152,8 +1168,9 @@ const ForexDashboard = () => {
     setLastUpdated(now);
 
     setData(prev => {
-      const newData = prev.map((item, i) => {
-        const newRate = res[i].rate;
+      const newData = prev.map((item) => {
+        const fetched = res.find(r => r.pair.symbol === item.pair.symbol);
+        const newRate = fetched ? fetched.rate : null;
         if (!newRate) return item;
 
         predictor.addDataPoint(item.pair.symbol, newRate);
