@@ -46,18 +46,14 @@ const fetchRealForexData = async (pair) => {
   try {
     // 1. Gold Specific Logic
     if (pair.base === 'XAU') {
+      // Use Binance as the primary source for Gold (Spot proxy)
       try {
-        const response = await fetch('https://api.metals.live/v1/spot/gold');
+        const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT');
         const data = await response.json();
-        if (data && data[0]?.price) return parseFloat(data[0].price);
-      } catch (err) { }
-
-      try {
-        const response = await fetch('https://data-asg.goldprice.org/dbXRates/USD');
-        const data = await response.json();
-        if (data?.items?.[0]?.xauPrice) return parseFloat(data.items[0].xauPrice);
-      } catch (err) { }
-
+        if (data?.price) return parseFloat(data.price);
+      } catch (err) {
+        console.warn("Binance PAXGUSDT fallback failed for Gold", err);
+      }
       return null;
     }
 
@@ -306,7 +302,12 @@ const TradingSettings = ({ currencyData: propData }) => {
   const calculateKellyCriterion = useCallback(() => {
     const winRate = settings.winRate / 100;
     const riskRewardRatio = settings.riskRewardRatio;
-    const kelly = (winRate * riskRewardRatio - (1 - winRate)) / riskRewardRatio;
+    if (!riskRewardRatio || riskRewardRatio <= 0) return 0;
+    
+    // Kelly = (p*b - q) / b
+    // p = win prob, b = RR ratio, q = loss prob
+    const q = 1 - winRate;
+    const kelly = (winRate * riskRewardRatio - q) / riskRewardRatio;
     return Math.max(0, Math.min(1, kelly)) * 100;
   }, [settings]);
 
@@ -497,8 +498,8 @@ const TradingSettings = ({ currencyData: propData }) => {
                 type="number"
                 min="10"
                 max="95"
-                value={settings.winRate}
-                onChange={(e) => handleSettingChange('winRate', parseInt(e.target.value))}
+                value={settings.winRate || ''}
+                onChange={(e) => handleSettingChange('winRate', e.target.value === '' ? 0 : parseInt(e.target.value))}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-800 font-mono font-medium"
               />
             </div>
