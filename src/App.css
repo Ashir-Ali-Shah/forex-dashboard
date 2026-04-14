@@ -1,0 +1,16 @@
+/* App.css */
+.App {
+  text-align: center;
+  position: relative;
+  /* Remove overflow: hidden from here to allow scrolling */
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Rest of your CSS remains the same... */
