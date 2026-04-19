@@ -1,5 +1,6 @@
 # Getting Started with Create React App
 
+**Latest Updates:** API keys have been secured via `.env` configuration and the trading dashboard logic has been refactored.
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts
