@@ -1,6 +1,7 @@
+require('dotenv').config();
 const https = require('https');
 
-const API_KEY = 'REDACTED';
+const API_KEY = process.env.GOOGLE_API_KEY;
 const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`;
 
 https.get(url, (res) => {
