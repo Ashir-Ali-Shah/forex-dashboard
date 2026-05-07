@@ -579,7 +579,7 @@ const TradingSettings = ({ currencyData: propData }) => {
                   <XAxis
                     dataKey="date"
                     minTickGap={30}
-                    tick={{ fontSize: 12, fill: '#94a3b8', fontWeight: 500, fontFamily: 'monospace' }}
+                    tick={{ fontSize: 12, fill: '#64748b', fontWeight: 500, fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(dateStr) => {
@@ -591,7 +591,7 @@ const TradingSettings = ({ currencyData: propData }) => {
                   />
                   <YAxis
                     domain={['auto', 'auto']}
-                    tick={{ fontSize: 12, fill: '#94a3b8', fontFamily: 'monospace' }}
+                    tick={{ fontSize: 12, fill: '#64748b', fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(value) => value.toFixed(3)}
@@ -695,12 +695,12 @@ const TradingSettings = ({ currencyData: propData }) => {
                   <XAxis
                     dataKey="month"
                     minTickGap={30}
-                    tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 500 }}
+                    tick={{ fontSize: 11, fill: '#64748b', fontWeight: 500 }}
                     axisLine={false}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 11, fill: '#94a3b8', fontFamily: 'monospace' }}
+                    tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(value) => `${value.toFixed(0)}%`}

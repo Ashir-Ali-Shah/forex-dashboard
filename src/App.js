@@ -8,19 +8,19 @@ const App = () => {
   return (
     <ErrorBoundary>
       <Router>
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-[#f8fafc]">
           {/* Navigation */}
-          <nav className="bg-white shadow-sm">
+          <nav className="bg-[#f8fafc]/90 backdrop-blur-xl border-b border-black/[0.06]">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between h-16">
+              <div className="flex justify-between h-14">
 
-                <div className="flex space-x-8">
+                <div className="flex space-x-6">
                   <NavLink
                     to="/"
                     className={({ isActive }) =>
-                      `inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive
-                        ? 'border-indigo-500 text-gray-900'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      `inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-all ${isActive
+                        ? 'border-indigo-500 text-slate-900'
+                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                       }`
                     }
                   >
@@ -29,9 +29,9 @@ const App = () => {
                   <NavLink
                     to="/dashboard"
                     className={({ isActive }) =>
-                      `inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${isActive
-                        ? 'border-indigo-500 text-gray-900'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      `inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-all ${isActive
+                        ? 'border-indigo-500 text-slate-900'
+                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                       }`
                     }
                   >

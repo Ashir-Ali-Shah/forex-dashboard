@@ -1,8 +1,7 @@
 /* App.css */
 .App {
-  text-align: center;
   position: relative;
-  /* Remove overflow: hidden from here to allow scrolling */
+  min-height: 100vh;
 }
 
 .scrollbar-hide {
@@ -13,4 +12,12 @@
   display: none;
 }
 
-/* Rest of your CSS remains the same... */
+/* Smooth transitions for route changes */
+main {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
