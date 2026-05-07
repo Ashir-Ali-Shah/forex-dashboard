@@ -7,7 +7,6 @@ import {
     ArrowDownRight, Gauge, Globe, Minus, Info, Layers, Volume2,
     Star, Filter,
 } from 'lucide-react';
-
 const TWELVE_DATA_BASE =
     process.env.REACT_APP_PROXY_TWELVEDATA_URL || 'https://api.twelvedata.com';
 const GROQ_BASE =
