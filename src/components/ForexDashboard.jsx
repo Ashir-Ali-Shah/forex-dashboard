@@ -5,7 +5,7 @@ import {
     Target, X, Send, Bot, Calculator, AlertCircle, Clock,
     AlertTriangle, Zap, Eye, EyeOff, DollarSign, ArrowUpRight,
     ArrowDownRight, Gauge, Globe, Minus, Info, Layers, Volume2,
-    Star, Filter,
+    Star,
 } from 'lucide-react';
 const TWELVE_DATA_BASE =
     process.env.REACT_APP_PROXY_TWELVEDATA_URL || 'https://api.twelvedata.com';
@@ -32,7 +32,7 @@ const WARMUP_CANDLES = 40;
 
 const TIER_PRIME = 65;
 const TIER_WATCH = 45;
-const TIER_WEAK = 30;
+// const TIER_WEAK = 30;
 
 const MAX_BULL_BEAR = 12;
 const REALISTIC_MAX_SCORE = 8;
@@ -1522,6 +1522,7 @@ const ForexDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(Date.now());
     const [isRefreshing, setIsRefreshing] = useState(false);
+    // eslint-disable-next-line no-unused-vars
     const [dataSource, setDataSource] = useState('Initialising…');
     const [page, setPage] = useState(1);
     const [activeSessions, setActiveSessions] = useState(() => getActiveSessions(new Date().getUTCHours()));
