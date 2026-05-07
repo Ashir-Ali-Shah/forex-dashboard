@@ -7,6 +7,9 @@ import {
     ArrowDownRight, Gauge, Globe, Minus, Info, Layers, Volume2,
     Star,
 } from 'lucide-react';
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
 const TWELVE_DATA_BASE =
     process.env.REACT_APP_PROXY_TWELVEDATA_URL || 'https://api.twelvedata.com';
 const GROQ_BASE =
@@ -15,6 +18,11 @@ const GROQ_BASE =
 
 const TWELVE_DATA_API_KEY = process.env.REACT_APP_TWELVE_DATA_API_KEY || '';
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY || '';
+
+// eslint-disable-next-line no-unused-vars
+const MISSING_KEYS = [];
+if (!TWELVE_DATA_API_KEY) MISSING_KEYS.push('REACT_APP_TWELVE_DATA_API_KEY');
+if (!GROQ_API_KEY) MISSING_KEYS.push('REACT_APP_GROQ_API_KEY');
 
 const hasTwelveKey = () => Boolean(TWELVE_DATA_API_KEY);
 const hasGroqKey = () => Boolean(GROQ_API_KEY);
