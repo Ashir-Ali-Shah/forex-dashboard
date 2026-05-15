@@ -2081,9 +2081,10 @@ const ForexDashboard = () => {
     const idleCallbacks = useRef([]);
     useEffect(() => {
         mountedRef.current = true;
+        const callbacks = idleCallbacks.current;
         return () => {
             mountedRef.current = false;
-            idleCallbacks.current.forEach(id => { try { cancelIdleCallback(id); } catch { clearTimeout(id); } });
+            callbacks.forEach(id => { try { cancelIdleCallback(id); } catch { clearTimeout(id); } });
         };
     }, []);
 
